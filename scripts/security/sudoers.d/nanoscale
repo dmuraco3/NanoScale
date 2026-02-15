@@ -1,0 +1,11 @@
+# Allow restarting ONLY nanoscale services
+nanoscale ALL=(root) NOPASSWD: /usr/bin/systemctl start nanoscale-*, /usr/bin/systemctl stop nanoscale-*, /usr/bin/systemctl restart nanoscale-*
+
+# Allow reloading nginx (safe operation)
+nanoscale ALL=(root) NOPASSWD: /usr/sbin/service nginx reload
+
+# Allow user management with strict prefixes
+nanoscale ALL=(root) NOPASSWD: /usr/sbin/useradd -r -s /bin/false nanoscale-*, /usr/sbin/userdel nanoscale-*
+
+# Allow certbot (Risk: High, but necessary for SSL)
+nanoscale ALL=(root) NOPASSWD: /usr/bin/certbot --nginx *

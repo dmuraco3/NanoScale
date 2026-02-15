@@ -1,0 +1,198 @@
+# Development Roadmap: NanoScale
+
+**Version:** 1.0.0  
+**Timeline:** 12 Weeks to MVP  
+**Goal:** A secure, multi-node PaaS for low-resource VPS hosting.
+
+## Phase 0: Security Foundation & Environment (Weeks 1-2)
+
+**Objective:** Establish the secure runtime environment. The system must be secure before features are added.
+
+### 0.1 Repository Setup
+
+- [x] Initialize Monorepo with turborepo or bun workspaces.
+- [x] Set up Rust workspace in `crates/`.
+- [x] Set up Next.js app in `apps/dashboard`.
+- [x] Linting & Style Enforcement:
+	- [x] Configure `cargo clippy` to deny warnings.
+	- [x] Configure ESLint with plugin `@next/next/recommended` and strict TypeScript rules.
+	- [x] Add a "No-useEffect" lint rule (e.g., `eslint-plugin-react-hooks`).
+	- [x] Verify compliance with [code-style-guide.md](code-style-guide.md).
+	- [x] Configure `cargo-audit` in CI pipeline to block insecure code.
+
+### 0.2 The Installer Script (`scripts/install.sh`)
+
+Must run as root.
+
+- [x] Dependency Check: Verify `curl`, `git`, `nginx`, `sqlite3` are present. Install if missing.
+- [x] User Creation:
+	- [x] Create group `nanoscale`.
+	- [x] Create system user `nanoscale` with home `/opt/nanoscale` and shell `/bin/false`.
+- [x] Directory Structure:
+	- [x] Create `/opt/nanoscale/{bin,data,sites,config,logs,tmp}`.
+	- [x] Execute `chown -R nanoscale:nanoscale /opt/nanoscale`.
+	- [x] Set permissions `0700` on `/opt/nanoscale/sites` (Private).
+- [x] Sudoers Configuration:
+	- [x] Write file `/etc/sudoers.d/nanoscale` with the exact rules defined in Tech Spec 6.1.
+	- [x] Verify syntax with `visudo -c`.
+- [x] Firewall:
+	- [x] Enable `ufw`.
+	- [x] Allow SSH (22), HTTP (80), HTTPS (443).
+	- [x] Allow Port 4000 (Internal API) - initially open, later restricted to Cluster IP.
+
+### 0.3 The Agent Skeleton (Rust)
+
+- [x] Initialize `crates/agent`.
+- [x] Implement `main.rs` that parses CLI args:
+	- [x] `--role orchestrator`: starts DB + API.
+	- [x] `--join <token>`: starts Worker logic.
+- [x] Implement `PrivilegeWrapper`: a Rust struct that wraps `Command::new("sudo")`.
+- [x] Strict Requirement: All system modification calls MUST go through this wrapper.
+- [x] Hardcode allowed paths (e.g., `/usr/bin/systemctl`).
+
+## Phase 1: Core Engine & Cluster Protocol (Weeks 3-4)
+
+**Objective:** Enable nodes to talk to each other securely.
+
+### 1.1 Database Implementation
+
+- [ ] Define SQLx migrations in `crates/agent/migrations`.
+- [ ] Implement `DbClient` struct.
+- [ ] Task: Ensure SQLite runs in WAL mode (`PRAGMA journal_mode=WAL;`) for concurrency.
+
+### 1.2 Cluster Handshake Logic
+
+- [ ] Orchestrator Endpoint: Implement `POST /api/cluster/generate-token`.
+- [ ] Generate a random 32-char string. Store in memory with 10-minute expiry.
+- [ ] Worker Join Logic:
+	- [ ] Worker generates a local Keypair (or strong random secret).
+	- [ ] Worker sends `POST {orchestrator_url}/api/cluster/join` with `{ token, ip, secret_key }`.
+- [ ] Orchestrator Finalization:
+	- [ ] Validate token.
+	- [ ] Create row in `servers` table.
+	- [ ] Return 200 OK.
+- [ ] Signature Middleware:
+	- [ ] Implement Axum middleware `VerifyClusterSignature`.
+	- [ ] Logic: Recompute `HMAC-SHA256(body + timestamp, stored_secret_key)`.
+	- [ ] Reject if signature mismatch or timestamp > 30s old.
+
+### 1.3 Internal API (Worker Side)
+
+- [ ] Expose `POST /internal/health` (returns CPU/RAM usage).
+- [ ] Expose `POST /internal/deploy` (placeholder for Phase 3).
+- [ ] Bind Axum to `0.0.0.0:4000`.
+
+## Phase 2: The Orchestrator Dashboard (Weeks 5-6)
+
+**Objective:** A UI to manage the cluster. Reference: implement strictly according to [ui-specification.md](ui-specification.md).
+
+### 2.1 Dashboard Auth
+
+- [ ] Implement `POST /api/auth/setup` (first run only).
+- [ ] Implement `POST /api/auth/login`.
+- [ ] Set up `tower-sessions` with SQLite store.
+- [ ] Create `AuthGuard` React HOC (Higher Order Component) to redirect to login if session missing.
+
+### 2.2 Server Management UI
+
+- [ ] List view: table of servers (Name, IP, Status, RAM Usage).
+- [ ] Add Server:
+	- [ ] Button "Add Server".
+	- [ ] Calls API to get Token.
+	- [ ] Displays one-liner: `curl ... | bash -s -- --join <token> ...`.
+	- [ ] Polling mechanism to check when new server comes online.
+
+### 2.3 Project Creation UI
+
+- [ ] Form: Name, Repo URL, Branch, Env Vars.
+- [ ] Server Selection: dropdown of available servers (fetched from `servers` table).
+- [ ] Submission Logic:
+	- [ ] Frontend POSTs to Orchestrator API.
+	- [ ] Orchestrator creates DB record.
+	- [ ] Orchestrator calls `POST /internal/projects` on the target Worker.
+
+## Phase 3: Deployment Pipeline (Weeks 7-8)
+
+**Objective:** Go from Git URL to running process.
+
+### 3.1 The Git Worker (Rust)
+
+- [ ] Implement `Git::clone(url, target_dir)`.
+- [ ] Security: validate URL regex.
+- [ ] Use `git clone --depth 1`.
+- [ ] Implement `Git::checkout(branch)`.
+
+### 3.2 The Build System (Local)
+
+- [ ] Swap Logic: Check RAM. If <2GB, run `fallocate` (via sudo wrapper).
+- [ ] Install: execute `bun install --frozen-lockfile` in the build directory.
+- [ ] Build: execute `bun run build`.
+- [ ] Artifact Handling:
+	- [ ] Identify `.next/standalone`.
+	- [ ] Move artifacts to `/opt/nanoscale/sites/{id}/source`.
+	- [ ] Crucial: execute `chown -R nanoscale-{id}:nanoscale-{id}` on the source dir.
+
+### 3.3 Systemd Generator
+
+- [ ] Create Jinja2 or Rust templates for `.service` and `.socket` files.
+- [ ] Inject `ProtectSystem=strict`, `NoNewPrivileges=yes`.
+- [ ] Write files to `/opt/nanoscale/tmp/`.
+- [ ] Move to `/etc/systemd/system/` via sudo wrapper.
+- [ ] Execute `systemctl daemon-reload`.
+
+### 3.4 Nginx Generator
+
+- [ ] Generate config block with `proxy_pass http://127.0.0.1:{port}`.
+- [ ] Write to `/etc/nginx/sites-available/`.
+- [ ] Reload Nginx via sudo wrapper.
+
+### 3.5 Scale-to-Zero Implementation
+
+- [ ] Implement `InactivityMonitor` struct in Rust.
+- [ ] Spawn a Tokio background task (Interval: 60s).
+- [ ] Loop through active projects:
+	- [ ] Run `sudo systemctl show --property=ActiveEnterTimestamp ...`.
+	- [ ] Run `ss -tn src :{port} | wc -l`.
+	- [ ] Logic: If `connections == 0` AND `uptime > 15m` THEN `sudo systemctl stop {service}`.
+
+## Phase 4: Remote Build & Monetization (Weeks 9-10)
+
+**Objective:** Enable the revenue engine.
+
+### 4.1 Remote Build Client (Agent Side)
+
+- [ ] Modify Deployment Logic to check `type: "remote"`.
+- [ ] Implement Zipper: compress repo (ignore `.git`, `node_modules`).
+- [ ] Implement Uploader: POST zip to `build.nanoscale.io`.
+- [ ] Implement Downloader: fetch artifact zip and unpack.
+
+### 4.2 Cloud Worker (The SaaS Component)
+
+Note: This runs outside the user's VPS.
+
+- [ ] Set up a Fly.io or AWS Lambda handler.
+- [ ] Logic:
+	- [ ] Receive zip.
+	- [ ] `bun install --frozen-lockfile && bun run build`.
+	- [ ] Zip output.
+	- [ ] Return stream.
+
+## Phase 5: Polish & Agency Features (Weeks 11-12)
+
+### 5.1 Logging
+
+- [ ] Implement SSE endpoint `/api/logs/{id}`.
+- [ ] Rust reads `journalctl -u nanoscale-{id} -f -o cat` line-by-line.
+- [ ] Stream lines to Frontend XTerm.js component.
+
+### 5.2 White-Labeling
+
+- [ ] Add `settings` table.
+- [ ] Allow uploading "Logo URL".
+- [ ] Frontend: replace "NanoScale" text with DB value.
+
+### 5.3 Final Security Audit
+
+- [ ] Attempt command injection on all text inputs.
+- [ ] Attempt path traversal (`../../`) on repo URLs.
+- [ ] Verify unprivileged user cannot read `/etc/shadow`.

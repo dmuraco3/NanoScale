@@ -1,0 +1,17 @@
+{
+  "name": "nanoscale",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "cd apps/dashboard && bun run dev",
+    "build": "cd apps/dashboard && bun run build",
+    "lint": "bun run lint:dashboard && bun run lint:rust",
+    "lint:dashboard": "cd apps/dashboard && bun run lint",
+    "lint:rust": "cargo clippy --workspace --all-targets --all-features -- -D warnings",
+    "format:rust": "cargo fmt --all --check",
+    "audit:rust": "cargo audit"
+  }
+}
