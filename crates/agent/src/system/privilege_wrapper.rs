@@ -42,10 +42,7 @@ impl PrivilegeWrapper {
             .output()?;
 
         if !output.status.success() {
-            return Err(anyhow!(
-                "privileged command failed: {binary_path} {:?}",
-                args
-            ));
+            return Err(anyhow!("privileged command failed: {binary_path} {args:?}"));
         }
 
         Ok(output)
