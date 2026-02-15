@@ -56,9 +56,9 @@ Must run as root.
 
 ### 1.1 Database Implementation
 
-- [ ] Define SQLx migrations in `crates/agent/migrations`.
-- [ ] Implement `DbClient` struct.
-- [ ] Task: Ensure SQLite runs in WAL mode (`PRAGMA journal_mode=WAL;`) for concurrency.
+- [x] Define SQLx migrations in `crates/agent/migrations`.
+- [x] Implement `DbClient` struct.
+- [x] Task: Ensure SQLite runs in WAL mode (`PRAGMA journal_mode=WAL;`) for concurrency.
 
 ### 1.2 Cluster Handshake Logic
 

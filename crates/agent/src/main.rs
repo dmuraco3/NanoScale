@@ -1,5 +1,7 @@
+use anyhow::Result;
 use clap::{Parser, ValueEnum};
 
+mod db;
 mod orchestrator;
 mod system;
 mod worker;
@@ -20,11 +22,12 @@ enum Role {
     Orchestrator,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match (cli.role, cli.join) {
-        (Some(Role::Orchestrator), None) => orchestrator::run(),
+        (Some(Role::Orchestrator), None) => orchestrator::run().await?,
         (None, Some(join_token)) => worker::run(&join_token),
         _ => {
             println!("Usage:");
@@ -32,4 +35,6 @@ fn main() {
             println!("  agent --join <token>");
         }
     }
+
+    Ok(())
 }

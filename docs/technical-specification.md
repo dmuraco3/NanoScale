@@ -53,6 +53,12 @@ The system is composed of two types of nodes:
 - **Runtime:** Runs as dedicated user `nanoscale` with scoped sudo privileges
 - **Code Standards:** See [code-style-guide.md](code-style-guide.md) for strict linting, architecture, and formatting rules.
 
+#### Toolchain Version Pinning
+
+- **Rust Toolchain:** Pinned to `1.93.0` via `rust-toolchain.toml` (with `rustfmt` and `clippy` components).
+- **Bun Runtime/Package Manager:** Pinned to `1.2.20` via `.bun-version` and root `package.json` `packageManager` field.
+- **CI Parity:** GitHub Actions must use pinned toolchain versions (no `latest`) to ensure lint/build consistency with local development.
+
 ### 1.3 Source Code Monorepo Structure
 
 ```text
