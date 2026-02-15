@@ -78,9 +78,9 @@ Must run as root.
 
 ### 1.3 Internal API (Worker Side)
 
-- [ ] Expose `POST /internal/health` (returns CPU/RAM usage).
-- [ ] Expose `POST /internal/deploy` (placeholder for Phase 3).
-- [ ] Bind Axum to `0.0.0.0:4000`.
+- [x] Expose `POST /internal/health` (returns CPU/RAM usage).
+- [x] Expose `POST /internal/deploy` (placeholder for Phase 3).
+- [x] Bind Axum to `0.0.0.0:4000`.
 
 ## Phase 2: The Orchestrator Dashboard (Weeks 5-6)
 
