@@ -62,19 +62,19 @@ Must run as root.
 
 ### 1.2 Cluster Handshake Logic
 
-- [ ] Orchestrator Endpoint: Implement `POST /api/cluster/generate-token`.
-- [ ] Generate a random 32-char string. Store in memory with 10-minute expiry.
-- [ ] Worker Join Logic:
-	- [ ] Worker generates a local Keypair (or strong random secret).
-	- [ ] Worker sends `POST {orchestrator_url}/api/cluster/join` with `{ token, ip, secret_key }`.
-- [ ] Orchestrator Finalization:
-	- [ ] Validate token.
-	- [ ] Create row in `servers` table.
-	- [ ] Return 200 OK.
-- [ ] Signature Middleware:
-	- [ ] Implement Axum middleware `VerifyClusterSignature`.
-	- [ ] Logic: Recompute `HMAC-SHA256(body + timestamp, stored_secret_key)`.
-	- [ ] Reject if signature mismatch or timestamp > 30s old.
+- [x] Orchestrator Endpoint: Implement `POST /api/cluster/generate-token`.
+- [x] Generate a random 32-char string. Store in memory with 10-minute expiry.
+- [x] Worker Join Logic:
+	- [x] Worker generates a local Keypair (or strong random secret).
+	- [x] Worker sends `POST {orchestrator_url}/api/cluster/join` with `{ token, ip, secret_key }`.
+- [x] Orchestrator Finalization:
+	- [x] Validate token.
+	- [x] Create row in `servers` table.
+	- [x] Return 200 OK.
+- [x] Signature Middleware:
+	- [x] Implement Axum middleware `VerifyClusterSignature`.
+	- [x] Logic: Recompute `HMAC-SHA256(body + timestamp, stored_secret_key)`.
+	- [x] Reject if signature mismatch or timestamp > 30s old.
 
 ### 1.3 Internal API (Worker Side)
 

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, ValueEnum};
 
+mod cluster;
 mod db;
 mod orchestrator;
 mod system;
@@ -28,7 +29,7 @@ async fn main() -> Result<()> {
 
     match (cli.role, cli.join) {
         (Some(Role::Orchestrator), None) => orchestrator::run().await?,
-        (None, Some(join_token)) => worker::run(&join_token),
+        (None, Some(join_token)) => worker::run(&join_token).await?,
         _ => {
             println!("Usage:");
             println!("  agent --role orchestrator");

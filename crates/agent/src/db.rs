@@ -5,6 +5,15 @@ use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, S
 use sqlx::{Pool, Sqlite};
 
 #[derive(Debug, Clone)]
+pub struct NewServer {
+    pub id: String,
+    pub name: String,
+    pub ip_address: String,
+    pub status: String,
+    pub secret_key: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct DbClient {
     pool: Pool<Sqlite>,
 }
@@ -53,5 +62,30 @@ impl DbClient {
         }
 
         Ok(())
+    }
+
+    pub async fn insert_server(&self, server: &NewServer) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO servers (id, name, ip_address, status, secret_key) VALUES (?1, ?2, ?3, ?4, ?5)",
+        )
+        .bind(&server.id)
+        .bind(&server.name)
+        .bind(&server.ip_address)
+        .bind(&server.status)
+        .bind(&server.secret_key)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn get_server_secret(&self, server_id: &str) -> Result<Option<String>> {
+        let secret =
+            sqlx::query_scalar::<_, String>("SELECT secret_key FROM servers WHERE id = ?1")
+                .bind(server_id)
+                .fetch_optional(&self.pool)
+                .await?;
+
+        Ok(secret)
     }
 }
