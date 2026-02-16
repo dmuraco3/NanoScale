@@ -14,6 +14,46 @@ pub struct NewServer {
 }
 
 #[derive(Debug, Clone)]
+pub struct NewProject {
+    pub id: String,
+    pub server_id: String,
+    pub name: String,
+    pub repo_url: String,
+    pub branch: String,
+    pub build_command: String,
+    pub env_vars: String,
+    pub port: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct ServerRecord {
+    pub id: String,
+    pub name: String,
+    pub ip_address: String,
+    pub status: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ServerConnectionInfo {
+    pub id: String,
+    pub ip_address: String,
+    pub secret_key: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewUser {
+    pub id: String,
+    pub username: String,
+    pub password_hash: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct UserRecord {
+    pub id: String,
+    pub password_hash: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct DbClient {
     pool: Pool<Sqlite>,
 }
@@ -87,5 +127,99 @@ impl DbClient {
                 .await?;
 
         Ok(secret)
+    }
+
+    pub async fn list_servers(&self) -> Result<Vec<ServerRecord>> {
+        let rows = sqlx::query_as::<_, (String, String, String, String)>(
+            "SELECT id, name, ip_address, status FROM servers ORDER BY created_at DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let servers = rows
+            .into_iter()
+            .map(|(id, name, ip_address, status)| ServerRecord {
+                id,
+                name,
+                ip_address,
+                status,
+            })
+            .collect();
+
+        Ok(servers)
+    }
+
+    pub async fn get_server_connection_info(
+        &self,
+        server_id: &str,
+    ) -> Result<Option<ServerConnectionInfo>> {
+        let row = sqlx::query_as::<_, (String, String, String)>(
+            "SELECT id, ip_address, secret_key FROM servers WHERE id = ?1",
+        )
+        .bind(server_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        let server = row.map(|(id, ip_address, secret_key)| ServerConnectionInfo {
+            id,
+            ip_address,
+            secret_key,
+        });
+
+        Ok(server)
+    }
+
+    pub async fn users_count(&self) -> Result<i64> {
+        let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users")
+            .fetch_one(&self.pool)
+            .await?;
+
+        Ok(count)
+    }
+
+    pub async fn insert_user(&self, user: &NewUser) -> Result<()> {
+        sqlx::query("INSERT INTO users (id, username, password_hash) VALUES (?1, ?2, ?3)")
+            .bind(&user.id)
+            .bind(&user.username)
+            .bind(&user.password_hash)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn find_user_by_username(&self, username: &str) -> Result<Option<UserRecord>> {
+        let row = sqlx::query_as::<_, (String, String)>(
+            "SELECT id, password_hash FROM users WHERE username = ?1",
+        )
+        .bind(username)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        let user = row.map(|(id, password_hash)| UserRecord { id, password_hash });
+
+        Ok(user)
+    }
+
+    pub async fn insert_project(&self, project: &NewProject) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO projects (id, server_id, name, repo_url, branch, build_command, env_vars, port) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        )
+        .bind(&project.id)
+        .bind(&project.server_id)
+        .bind(&project.name)
+        .bind(&project.repo_url)
+        .bind(&project.branch)
+        .bind(&project.build_command)
+        .bind(&project.env_vars)
+        .bind(project.port)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub fn pool(&self) -> Pool<Sqlite> {
+        self.pool.clone()
     }
 }

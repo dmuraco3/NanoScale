@@ -88,28 +88,28 @@ Must run as root.
 
 ### 2.1 Dashboard Auth
 
-- [ ] Implement `POST /api/auth/setup` (first run only).
-- [ ] Implement `POST /api/auth/login`.
-- [ ] Set up `tower-sessions` with SQLite store.
-- [ ] Create `AuthGuard` React HOC (Higher Order Component) to redirect to login if session missing.
+- [x] Implement `POST /api/auth/setup` (first run only).
+- [x] Implement `POST /api/auth/login`.
+- [x] Set up `tower-sessions` with SQLite store.
+- [x] Create `AuthGuard` React HOC (Higher Order Component) to redirect to login if session missing.
 
 ### 2.2 Server Management UI
 
-- [ ] List view: table of servers (Name, IP, Status, RAM Usage).
-- [ ] Add Server:
-	- [ ] Button "Add Server".
-	- [ ] Calls API to get Token.
-	- [ ] Displays one-liner: `curl ... | bash -s -- --join <token> ...`.
-	- [ ] Polling mechanism to check when new server comes online.
+- [x] List view: table of servers (Name, IP, Status, RAM Usage).
+- [x] Add Server:
+	- [x] Button "Add Server".
+	- [x] Calls API to get Token.
+	- [x] Displays one-liner: `curl ... | bash -s -- --join <token> ...`.
+	- [x] Polling mechanism to check when new server comes online.
 
 ### 2.3 Project Creation UI
 
-- [ ] Form: Name, Repo URL, Branch, Env Vars.
-- [ ] Server Selection: dropdown of available servers (fetched from `servers` table).
-- [ ] Submission Logic:
-	- [ ] Frontend POSTs to Orchestrator API.
-	- [ ] Orchestrator creates DB record.
-	- [ ] Orchestrator calls `POST /internal/projects` on the target Worker.
+- [x] Form: Name, Repo URL, Branch, Env Vars.
+- [x] Server Selection: dropdown of available servers (fetched from `servers` table).
+- [x] Submission Logic:
+	- [x] Frontend POSTs to Orchestrator API.
+	- [x] Orchestrator creates DB record.
+	- [x] Orchestrator calls `POST /internal/projects` on the target Worker.
 
 ## Phase 3: Deployment Pipeline (Weeks 7-8)
 
@@ -117,10 +117,10 @@ Must run as root.
 
 ### 3.1 The Git Worker (Rust)
 
-- [ ] Implement `Git::clone(url, target_dir)`.
-- [ ] Security: validate URL regex.
-- [ ] Use `git clone --depth 1`.
-- [ ] Implement `Git::checkout(branch)`.
+- [x] Implement `Git::clone(url, target_dir)`.
+- [x] Security: validate URL regex.
+- [x] Use `git clone --depth 1`.
+- [x] Implement `Git::checkout(branch)`.
 
 ### 3.2 The Build System (Local)
 

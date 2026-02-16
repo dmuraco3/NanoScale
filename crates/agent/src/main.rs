@@ -3,6 +3,7 @@ use clap::{Parser, ValueEnum};
 
 mod cluster;
 mod db;
+mod deployment;
 mod orchestrator;
 mod system;
 mod worker;
