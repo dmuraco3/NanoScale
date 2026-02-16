@@ -10,6 +10,8 @@ const USERADD_BIN: &str = "/usr/sbin/useradd";
 const USERDEL_BIN: &str = "/usr/sbin/userdel";
 const CERTBOT_BIN: &str = "/usr/bin/certbot";
 const MV_BIN: &str = "/usr/bin/mv";
+const CHOWN_BIN: &str = "/usr/bin/chown";
+const FALLOCATE_BIN: &str = "/usr/bin/fallocate";
 
 #[derive(Debug)]
 pub struct PrivilegeWrapper {
@@ -25,6 +27,8 @@ impl PrivilegeWrapper {
             USERDEL_BIN,
             CERTBOT_BIN,
             MV_BIN,
+            CHOWN_BIN,
+            FALLOCATE_BIN,
         ]);
 
         Self { allowed_binaries }

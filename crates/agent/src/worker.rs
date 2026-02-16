@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use sysinfo::System;
 
 use crate::cluster::protocol::{JoinClusterRequest, JoinClusterResponse};
+use crate::deployment::build::BuildSystem;
 use crate::deployment::git::Git;
 use crate::system::PrivilegeWrapper;
 
@@ -33,7 +34,6 @@ struct DeployPlaceholderResponse {
 #[derive(Debug, Deserialize)]
 struct WorkerCreateProjectRequest {
     project_id: String,
-    name: String,
     repo_url: String,
     branch: String,
     build_command: String,
@@ -131,11 +131,10 @@ async fn internal_projects(
     Json(payload): Json<WorkerCreateProjectRequest>,
 ) -> (StatusCode, Json<CreateProjectPlaceholderResponse>) {
     let project_id = payload.project_id;
-    let project_name = payload.name;
     let repo_url = payload.repo_url;
     let branch = payload.branch;
     let build_command = payload.build_command;
-    let env_var_pairs = payload
+    let _env_var_pairs = payload
         .env_vars
         .into_iter()
         .map(|env_var| (env_var.key, env_var.value))
@@ -149,6 +148,8 @@ async fn internal_projects(
     let repo_url_for_clone = repo_url.clone();
     let branch_for_checkout = branch.clone();
     let repo_dir_for_clone = repo_dir.clone();
+    let project_id_for_build = project_id.clone();
+    let build_command_for_run = build_command.clone();
 
     let clone_result = tokio::task::spawn_blocking(move || {
         Git::validate_repo_url(&repo_url_for_clone)?;
@@ -162,6 +163,14 @@ async fn internal_projects(
 
         Git::clone(&repo_url_for_clone, &repo_dir_for_clone)?;
         Git::checkout(&repo_dir_for_clone, &branch_for_checkout)?;
+
+        let privilege_wrapper = PrivilegeWrapper::new();
+        BuildSystem::execute(
+            &project_id_for_build,
+            &repo_dir_for_clone,
+            &build_command_for_run,
+            &privilege_wrapper,
+        )?;
 
         Result::<(), anyhow::Error>::Ok(())
     })
@@ -189,15 +198,11 @@ async fn internal_projects(
         }
     };
 
-    let _ = project_name;
-    let _ = build_command;
-    let _ = env_var_pairs;
-
     (
         StatusCode::ACCEPTED,
         Json(CreateProjectPlaceholderResponse {
             status: "accepted",
-            message: git_message.to_string(),
+            message: format!("{git_message} Build pipeline completed."),
         }),
     )
 }

@@ -124,13 +124,13 @@ Must run as root.
 
 ### 3.2 The Build System (Local)
 
-- [ ] Swap Logic: Check RAM. If <2GB, run `fallocate` (via sudo wrapper).
-- [ ] Install: execute `bun install --frozen-lockfile` in the build directory.
-- [ ] Build: execute `bun run build`.
-- [ ] Artifact Handling:
-	- [ ] Identify `.next/standalone`.
-	- [ ] Move artifacts to `/opt/nanoscale/sites/{id}/source`.
-	- [ ] Crucial: execute `chown -R nanoscale-{id}:nanoscale-{id}` on the source dir.
+- [x] Swap Logic: Check RAM. If <2GB, run `fallocate` (via sudo wrapper).
+- [x] Install: execute `bun install --frozen-lockfile` in the build directory.
+- [x] Build: execute `bun run build`.
+- [x] Artifact Handling:
+	- [x] Identify `.next/standalone`.
+	- [x] Move artifacts to `/opt/nanoscale/sites/{id}/source`.
+	- [x] Crucial: execute `chown -R nanoscale-{id}:nanoscale-{id}` on the source dir.
 
 ### 3.3 Systemd Generator
 
