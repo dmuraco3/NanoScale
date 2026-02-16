@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { clientApiBaseUrl } from "@/lib/api-base-url";
+import { setupAdminAction } from "@/app/setup/actions";
 
 export default function SetupForm() {
   const [username, setUsername] = useState("");
@@ -28,14 +28,7 @@ export default function SetupForm() {
     setErrorMessage("");
 
     try {
-      const response = await fetch(`${clientApiBaseUrl()}/api/auth/setup`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ username, password }),
-      });
+      const response = await setupAdminAction(username, password);
 
       if (response.ok) {
         window.location.assign("/");
@@ -48,11 +41,13 @@ export default function SetupForm() {
         setErrorMessage("Setup has already been completed. Please sign in.");
       } else if (response.status >= 500) {
         setErrorMessage("Server error while creating admin account. Check orchestrator logs.");
+      } else if (response.status === 0) {
+        setErrorMessage("Cannot reach NanoScale API. Verify local API service on port 4000.");
       } else {
         setErrorMessage("Unable to create admin account.");
       }
     } catch {
-      setErrorMessage("Cannot reach NanoScale API. Verify port 4000 access and API base URL.");
+      setErrorMessage("Unable to create admin account.");
     } finally {
       setIsSubmitting(false);
     }
