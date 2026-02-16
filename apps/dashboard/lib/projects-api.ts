@@ -1,3 +1,5 @@
+'use server';
+
 import { clientApiBaseUrl } from "@/lib/auth-api";
 
 export interface ProjectEnvVar {

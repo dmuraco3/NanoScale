@@ -1,3 +1,5 @@
+'use server';
+
 import { headers } from "next/headers";
 
 export interface AuthStatus {
@@ -30,6 +32,6 @@ export async function fetchAuthStatus(): Promise<AuthStatus> {
   return payload;
 }
 
-export function clientApiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_NANOSCALE_API_URL ?? "";
+export async function clientApiBaseUrl(): Promise<string> {
+  return Promise.resolve(process.env.NEXT_PUBLIC_NANOSCALE_API_URL ?? "");
 }

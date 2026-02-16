@@ -1,3 +1,5 @@
+'use server'
+
 import { headers } from "next/headers";
 
 import { clientApiBaseUrl } from "@/lib/auth-api";
@@ -34,7 +36,7 @@ export async function fetchServers(): Promise<ServerListItem[]> {
 }
 
 export async function fetchServersClient(): Promise<ServerListItem[]> {
-  const response = await fetch(`${clientApiBaseUrl()}/api/servers`, {
+  const response = await fetch(`${await clientApiBaseUrl()}/api/servers`, {
     method: "GET",
     credentials: "include",
   });
