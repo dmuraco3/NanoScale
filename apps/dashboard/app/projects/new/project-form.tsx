@@ -50,7 +50,13 @@ export default function ProjectForm(props: ProjectFormProps) {
         env_vars: filteredEnvVars,
       });
 
-      window.location.assign(`/projects/${result.id}`);
+      if (!result.ok) {
+        setSubmitting(false);
+        setErrorMessage(result.message);
+        return;
+      }
+
+      window.location.assign(`/projects/${result.data.id}`);
     } catch (error) {
       setSubmitting(false);
       if (error instanceof Error && error.message.length > 0) {

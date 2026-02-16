@@ -1,6 +1,6 @@
 'use server';
 
-import { clientApiBaseUrl } from "@/lib/api-base-url";
+import { headers } from "next/headers";
 
 export interface ProjectEnvVar {
   key: string;
@@ -20,20 +20,25 @@ export interface CreateProjectResponse {
   id: string;
 }
 
-interface ApiErrorResponse {
-  message?: string;
-}
+export type CreateProjectResult =
+  | { ok: true; data: CreateProjectResponse }
+  | { ok: false; message: string };
 
 export async function createProject(
   payload: CreateProjectPayload,
-): Promise<CreateProjectResponse> {
-  const response = await fetch(`${clientApiBaseUrl()}/api/projects`, {
+): Promise<CreateProjectResult> {
+  const requestHeaders = await headers();
+  const cookie = requestHeaders.get("cookie") ?? "";
+  const internalApiUrl = process.env.NANOSCALE_INTERNAL_API_URL ?? "http://127.0.0.1:4000";
+
+  const response = await fetch(`${internalApiUrl}/api/projects`, {
     method: "POST",
-    credentials: "include",
     headers: {
       "content-type": "application/json",
+      cookie,
     },
     body: JSON.stringify(payload),
+    cache: "no-store",
   });
 
   if (!response.ok) {
@@ -41,7 +46,7 @@ export async function createProject(
     const rawErrorBody = await response.text();
 
     try {
-      const errorPayload = JSON.parse(rawErrorBody) as ApiErrorResponse;
+      const errorPayload = JSON.parse(rawErrorBody) as { message?: string };
       if (errorPayload.message && errorPayload.message.length > 0) {
         message = errorPayload.message;
       }
@@ -51,8 +56,8 @@ export async function createProject(
       }
     }
 
-    throw new Error(message);
+    return { ok: false, message };
   }
 
-  return (await response.json()) as CreateProjectResponse;
+  return { ok: true, data: (await response.json()) as CreateProjectResponse };
 }
