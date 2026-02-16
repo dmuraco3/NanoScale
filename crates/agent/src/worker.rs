@@ -11,6 +11,7 @@ use sysinfo::System;
 use crate::cluster::protocol::{JoinClusterRequest, JoinClusterResponse};
 use crate::deployment::build::BuildSystem;
 use crate::deployment::git::Git;
+use crate::deployment::systemd::SystemdGenerator;
 use crate::system::PrivilegeWrapper;
 
 const DEFAULT_ORCHESTRATOR_URL: &str = "http://127.0.0.1:4000";
@@ -165,10 +166,16 @@ async fn internal_projects(
         Git::checkout(&repo_dir_for_clone, &branch_for_checkout)?;
 
         let privilege_wrapper = PrivilegeWrapper::new();
-        BuildSystem::execute(
+        let source_dir = BuildSystem::execute(
             &project_id_for_build,
             &repo_dir_for_clone,
             &build_command_for_run,
+            &privilege_wrapper,
+        )?;
+
+        SystemdGenerator::generate_and_install(
+            &project_id_for_build,
+            &source_dir,
             &privilege_wrapper,
         )?;
 
@@ -202,7 +209,7 @@ async fn internal_projects(
         StatusCode::ACCEPTED,
         Json(CreateProjectPlaceholderResponse {
             status: "accepted",
-            message: format!("{git_message} Build pipeline completed."),
+            message: format!("{git_message} Build pipeline and systemd generation completed."),
         }),
     )
 }

@@ -134,11 +134,11 @@ Must run as root.
 
 ### 3.3 Systemd Generator
 
-- [ ] Create Jinja2 or Rust templates for `.service` and `.socket` files.
-- [ ] Inject `ProtectSystem=strict`, `NoNewPrivileges=yes`.
-- [ ] Write files to `/opt/nanoscale/tmp/`.
-- [ ] Move to `/etc/systemd/system/` via sudo wrapper.
-- [ ] Execute `systemctl daemon-reload`.
+- [x] Create Jinja2 or Rust templates for `.service` and `.socket` files.
+- [x] Inject `ProtectSystem=strict`, `NoNewPrivileges=yes`.
+- [x] Write files to `/opt/nanoscale/tmp/`.
+- [x] Move to `/etc/systemd/system/` via sudo wrapper.
+- [x] Execute `systemctl daemon-reload`.
 
 ### 3.4 Nginx Generator
 
