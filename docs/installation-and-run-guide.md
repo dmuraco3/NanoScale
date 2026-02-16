@@ -143,3 +143,35 @@ If successful, the worker reports it joined the cluster and starts internal API 
   - orchestrator agent process
   - dashboard process (or reverse-proxy to a managed runtime)
 - Keep Rust/Bun versions pinned to avoid CI/local mismatch.
+
+## 10) Troubleshooting
+
+### `SQLite code 14: unable to open database file`
+
+If you run orchestrator with `NANOSCALE_DB_PATH=/opt/nanoscale/data/nanoscale.db`, the process must have write access to `/opt/nanoscale/data`.
+
+Use one of these fixes:
+
+1. Run orchestrator as the `nanoscale` user (recommended for `/opt/nanoscale`):
+
+```bash
+sudo -u nanoscale \
+NANOSCALE_DB_PATH=/opt/nanoscale/data/nanoscale.db \
+NANOSCALE_ORCHESTRATOR_BIND=0.0.0.0:4000 \
+./target/release/agent --role orchestrator
+```
+
+2. Re-apply expected ownership after install:
+
+```bash
+sudo mkdir -p /opt/nanoscale/data
+sudo chown -R nanoscale:nanoscale /opt/nanoscale
+```
+
+3. For local/dev-only runs, use a DB path in your current directory:
+
+```bash
+NANOSCALE_DB_PATH=./nanoscale.db \
+NANOSCALE_ORCHESTRATOR_BIND=0.0.0.0:4000 \
+./target/release/agent --role orchestrator
+```

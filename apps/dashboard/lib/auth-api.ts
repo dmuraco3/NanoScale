@@ -8,7 +8,16 @@ export interface AuthStatus {
 }
 
 function apiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_NANOSCALE_API_URL ?? "";
+  const configuredUrl = process.env.NEXT_PUBLIC_NANOSCALE_API_URL;
+  if (configuredUrl && configuredUrl.length > 0) {
+    return configuredUrl;
+  }
+
+  if (typeof window !== "undefined") {
+    return `${window.location.protocol}//${window.location.hostname}:4000`;
+  }
+
+  return "http://127.0.0.1:4000";
 }
 
 export async function fetchAuthStatus(): Promise<AuthStatus> {
@@ -32,6 +41,6 @@ export async function fetchAuthStatus(): Promise<AuthStatus> {
   return payload;
 }
 
-export async function clientApiBaseUrl(): Promise<string> {
-  return Promise.resolve(process.env.NEXT_PUBLIC_NANOSCALE_API_URL ?? "");
+export function clientApiBaseUrl(): string {
+  return apiBaseUrl();
 }

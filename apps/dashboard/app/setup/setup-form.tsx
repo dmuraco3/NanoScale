@@ -19,30 +19,43 @@ export default function SetupForm() {
       return;
     }
 
-    setIsSubmitting(true);
-    setErrorMessage("");
-
-    const response = await fetch(`${clientApiBaseUrl()}/api/auth/setup`, {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ username, password }),
-    });
-
-    if (response.ok) {
-      window.location.assign("/");
+    if (password.length < 8) {
+      setErrorMessage("Password must be at least 8 characters.");
       return;
     }
 
-    if (response.status === 409) {
-      setErrorMessage("Setup has already been completed. Please sign in.");
-    } else {
-      setErrorMessage("Unable to create admin account.");
-    }
+    setIsSubmitting(true);
+    setErrorMessage("");
 
-    setIsSubmitting(false);
+    try {
+      const response = await fetch(`${clientApiBaseUrl()}/api/auth/setup`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ username, password }),
+      });
+
+      if (response.ok) {
+        window.location.assign("/");
+        return;
+      }
+
+      if (response.status === 400) {
+        setErrorMessage("Username is required and password must be at least 8 characters.");
+      } else if (response.status === 409) {
+        setErrorMessage("Setup has already been completed. Please sign in.");
+      } else if (response.status >= 500) {
+        setErrorMessage("Server error while creating admin account. Check orchestrator logs.");
+      } else {
+        setErrorMessage("Unable to create admin account.");
+      }
+    } catch {
+      setErrorMessage("Cannot reach NanoScale API. Verify port 4000 access and API base URL.");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -73,6 +86,7 @@ export default function SetupForm() {
               className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-100"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
+              minLength={8}
               required
             />
           </div>
@@ -87,6 +101,7 @@ export default function SetupForm() {
               className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-100"
               value={confirmPassword}
               onChange={(event) => setConfirmPassword(event.target.value)}
+              minLength={8}
               required
             />
           </div>

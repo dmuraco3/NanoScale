@@ -13,7 +13,7 @@ export interface ServerListItem {
 }
 
 function apiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_NANOSCALE_API_URL ?? "";
+  return clientApiBaseUrl();
 }
 
 export async function fetchServers(): Promise<ServerListItem[]> {
@@ -36,7 +36,7 @@ export async function fetchServers(): Promise<ServerListItem[]> {
 }
 
 export async function fetchServersClient(): Promise<ServerListItem[]> {
-  const response = await fetch(`${await clientApiBaseUrl()}/api/servers`, {
+  const response = await fetch(`${clientApiBaseUrl()}/api/servers`, {
     method: "GET",
     credentials: "include",
   });
