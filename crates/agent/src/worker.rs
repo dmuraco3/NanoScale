@@ -11,6 +11,7 @@ use sysinfo::System;
 use crate::cluster::protocol::{JoinClusterRequest, JoinClusterResponse};
 use crate::deployment::build::BuildSystem;
 use crate::deployment::git::Git;
+use crate::deployment::nginx::NginxGenerator;
 use crate::deployment::systemd::SystemdGenerator;
 use crate::system::PrivilegeWrapper;
 
@@ -178,6 +179,7 @@ async fn internal_projects(
             &source_dir,
             &privilege_wrapper,
         )?;
+        NginxGenerator::generate_and_install(&project_id_for_build, 3000, &privilege_wrapper)?;
 
         Result::<(), anyhow::Error>::Ok(())
     })
@@ -209,7 +211,9 @@ async fn internal_projects(
         StatusCode::ACCEPTED,
         Json(CreateProjectPlaceholderResponse {
             status: "accepted",
-            message: format!("{git_message} Build pipeline and systemd generation completed."),
+            message: format!(
+                "{git_message} Build pipeline, systemd generation, and nginx configuration completed."
+            ),
         }),
     )
 }

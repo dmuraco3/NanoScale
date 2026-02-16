@@ -142,9 +142,9 @@ Must run as root.
 
 ### 3.4 Nginx Generator
 
-- [ ] Generate config block with `proxy_pass http://127.0.0.1:{port}`.
-- [ ] Write to `/etc/nginx/sites-available/`.
-- [ ] Reload Nginx via sudo wrapper.
+- [x] Generate config block with `proxy_pass http://127.0.0.1:{port}`.
+- [x] Write to `/etc/nginx/sites-available/`.
+- [x] Reload Nginx via sudo wrapper.
 
 ### 3.5 Scale-to-Zero Implementation
 
