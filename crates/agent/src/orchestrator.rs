@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::Argon2;
@@ -268,17 +268,19 @@ async fn internal_projects(
     let build_command_for_run = build_command.clone();
 
     let clone_result = tokio::task::spawn_blocking(move || {
-        Git::validate_repo_url(&repo_url_for_clone)?;
-        Git::validate_branch(&branch_for_checkout)?;
+        Git::validate_repo_url(&repo_url_for_clone).context("repo URL validation failed")?;
+        Git::validate_branch(&branch_for_checkout).context("branch validation failed")?;
 
-        std::fs::create_dir_all(&parent_dir)?;
+        std::fs::create_dir_all(&parent_dir).context("failed to create repo parent directory")?;
 
         if repo_dir_for_clone.exists() {
-            std::fs::remove_dir_all(&repo_dir_for_clone)?;
+            std::fs::remove_dir_all(&repo_dir_for_clone)
+                .context("failed to clean existing repo directory")?;
         }
 
-        Git::clone(&repo_url_for_clone, &repo_dir_for_clone)?;
-        Git::checkout(&repo_dir_for_clone, &branch_for_checkout)?;
+        Git::clone(&repo_url_for_clone, &repo_dir_for_clone).context("git clone step failed")?;
+        Git::checkout(&repo_dir_for_clone, &branch_for_checkout)
+            .context("git checkout step failed")?;
 
         let privilege_wrapper = PrivilegeWrapper::new();
         let source_dir = BuildSystem::execute(
@@ -286,14 +288,17 @@ async fn internal_projects(
             &repo_dir_for_clone,
             &build_command_for_run,
             &privilege_wrapper,
-        )?;
+        )
+        .context("build pipeline failed")?;
 
         SystemdGenerator::generate_and_install(
             &project_id_for_build,
             &source_dir,
             &privilege_wrapper,
-        )?;
-        NginxGenerator::generate_and_install(&project_id_for_build, port, &privilege_wrapper)?;
+        )
+        .context("systemd generation failed")?;
+        NginxGenerator::generate_and_install(&project_id_for_build, port, &privilege_wrapper)
+            .context("nginx generation failed")?;
 
         Result::<(), anyhow::Error>::Ok(())
     })
@@ -306,7 +311,7 @@ async fn internal_projects(
                 StatusCode::BAD_REQUEST,
                 Json(InternalProjectResponse {
                     status: "error",
-                    message: format!("Git operation failed: {error}"),
+                    message: format!("Deployment pipeline failed: {error}"),
                 }),
             );
         }

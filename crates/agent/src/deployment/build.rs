@@ -58,11 +58,14 @@ impl BuildSystem {
     }
 
     fn run_install(repo_dir: &Path) -> Result<()> {
-        let output = Command::new("bun")
+        let bun_binary = Self::bun_binary()?;
+
+        let output = Command::new(bun_binary)
             .arg("install")
             .arg("--frozen-lockfile")
             .current_dir(repo_dir)
-            .output()?;
+            .output()
+            .map_err(|error| anyhow::anyhow!("failed to execute bun install command: {error}"))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -77,11 +80,14 @@ impl BuildSystem {
             bail!("unsupported build command for phase 3.2: {build_command}");
         }
 
-        let output = Command::new("bun")
+        let bun_binary = Self::bun_binary()?;
+
+        let output = Command::new(bun_binary)
             .arg("run")
             .arg("build")
             .current_dir(repo_dir)
-            .output()?;
+            .output()
+            .map_err(|error| anyhow::anyhow!("failed to execute bun run build command: {error}"))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -134,5 +140,36 @@ impl BuildSystem {
 
         privilege_wrapper.run("/usr/bin/chown", &["-R", &owner, destination])?;
         Ok(())
+    }
+
+    fn bun_binary() -> Result<String> {
+        if let Ok(configured_binary) = std::env::var("NANOSCALE_BUN_BIN") {
+            let trimmed_binary = configured_binary.trim();
+            if !trimmed_binary.is_empty() {
+                return Ok(trimmed_binary.to_string());
+            }
+        }
+
+        for candidate in ["/usr/bin/bun", "/bin/bun", "/usr/local/bin/bun"] {
+            if Path::new(candidate).is_file() {
+                return Ok(candidate.to_string());
+            }
+        }
+
+        if let Ok(path_value) = std::env::var("PATH") {
+            for path_entry in path_value.split(':') {
+                if path_entry.is_empty() {
+                    continue;
+                }
+
+                let candidate_path = Path::new(path_entry).join("bun");
+                if candidate_path.is_file() {
+                    return Ok(candidate_path.to_string_lossy().to_string());
+                }
+            }
+        }
+
+        let current_path = std::env::var("PATH").unwrap_or_default();
+        bail!("bun binary not found; install bun or set NANOSCALE_BUN_BIN (PATH={current_path})")
     }
 }
