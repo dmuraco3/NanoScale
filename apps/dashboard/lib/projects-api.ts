@@ -20,6 +20,10 @@ export interface CreateProjectResponse {
   id: string;
 }
 
+interface ApiErrorResponse {
+  message?: string;
+}
+
 export async function createProject(
   payload: CreateProjectPayload,
 ): Promise<CreateProjectResponse> {
@@ -33,7 +37,21 @@ export async function createProject(
   });
 
   if (!response.ok) {
-    throw new Error("Unable to create project");
+    let message = `Unable to create project (HTTP ${response.status}).`;
+    const rawErrorBody = await response.text();
+
+    try {
+      const errorPayload = JSON.parse(rawErrorBody) as ApiErrorResponse;
+      if (errorPayload.message && errorPayload.message.length > 0) {
+        message = errorPayload.message;
+      }
+    } catch {
+      if (rawErrorBody.length > 0) {
+        message = rawErrorBody;
+      }
+    }
+
+    throw new Error(message);
   }
 
   return (await response.json()) as CreateProjectResponse;

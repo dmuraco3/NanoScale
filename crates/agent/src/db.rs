@@ -239,6 +239,15 @@ impl DbClient {
         Ok(())
     }
 
+    pub async fn delete_project_by_id(&self, project_id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM projects WHERE id = ?1")
+            .bind(project_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+
     pub fn pool(&self) -> Pool<Sqlite> {
         self.pool.clone()
     }

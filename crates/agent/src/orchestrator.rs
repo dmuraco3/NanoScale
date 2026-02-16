@@ -43,6 +43,7 @@ pub struct OrchestratorState {
     pub db: DbClient,
     pub token_store: Arc<TokenStore>,
     pub monitored_projects: Arc<RwLock<Vec<MonitoredProject>>>,
+    pub local_server_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -127,7 +128,7 @@ pub async fn run() -> Result<()> {
 
     db_client
         .upsert_server(&NewServer {
-            id: local_server_id,
+            id: local_server_id.clone(),
             name: local_server_name,
             ip_address: orchestrator_worker_ip,
             status: "online".to_string(),
@@ -139,6 +140,7 @@ pub async fn run() -> Result<()> {
         db: db_client,
         token_store: Arc::new(TokenStore::new()),
         monitored_projects: Arc::new(RwLock::new(Vec::new())),
+        local_server_id,
     };
 
     let monitor = InactivityMonitor::new(state.monitored_projects.clone());
@@ -469,19 +471,32 @@ async fn create_project(
     State(state): State<OrchestratorState>,
     session: Session,
     Json(payload): Json<CreateProjectRequest>,
-) -> Result<Json<CreateProjectResponse>, StatusCode> {
-    require_authenticated(&session).await?;
+) -> Result<Json<CreateProjectResponse>, (StatusCode, String)> {
+    require_authenticated(&session)
+        .await
+        .map_err(|status| (status, "Authentication required".to_string()))?;
 
     if payload.name.trim().is_empty() || payload.repo_url.trim().is_empty() {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Project name and repository URL are required".to_string(),
+        ));
     }
 
     let connection = state
         .db
         .get_server_connection_info(&payload.server_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Unable to load server connection info: {error}"),
+            )
+        })?
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            "Selected server was not found".to_string(),
+        ))?;
 
     let project_id = Uuid::new_v4().to_string();
     let project = NewProject {
@@ -491,26 +506,43 @@ async fn create_project(
         repo_url: payload.repo_url.clone(),
         branch: payload.branch.clone(),
         build_command: payload.build_command.clone(),
-        env_vars: serde_json::to_string(&payload.env_vars)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+        env_vars: serde_json::to_string(&payload.env_vars).map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to serialize env vars: {error}"),
+            )
+        })?,
         port: 3000,
     };
 
-    state
-        .db
-        .insert_project(&project)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    state.db.insert_project(&project).await.map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to persist project record: {error}"),
+        )
+    })?;
 
-    call_worker_create_project(
+    let worker_host = if connection.id == state.local_server_id {
+        "127.0.0.1"
+    } else {
+        &connection.ip_address
+    };
+
+    if let Err(error) = call_worker_create_project(
         &connection.id,
-        &connection.ip_address,
+        worker_host,
         &connection.secret_key,
         &payload,
         &project_id,
     )
     .await
-    .map_err(|_| StatusCode::BAD_GATEWAY)?;
+    {
+        let _ = state.db.delete_project_by_id(&project_id).await;
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            format!("Worker deployment call failed: {error}"),
+        ));
+    }
 
     Ok(Json(CreateProjectResponse { id: project_id }))
 }
@@ -541,7 +573,7 @@ async fn call_worker_create_project(
     let signature = sign_internal_payload(&body, &timestamp, secret_key)?;
     let url = format!("http://{worker_host}:4000/internal/projects");
 
-    reqwest::Client::new()
+    let response = reqwest::Client::new()
         .post(url)
         .header("X-Cluster-Timestamp", timestamp)
         .header("X-Cluster-Signature", signature)
@@ -549,8 +581,13 @@ async fn call_worker_create_project(
         .header("content-type", "application/json")
         .body(body)
         .send()
-        .await?
-        .error_for_status()?;
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        anyhow::bail!("internal projects endpoint returned {status}: {body}");
+    }
 
     Ok(())
 }

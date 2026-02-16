@@ -51,9 +51,13 @@ export default function ProjectForm(props: ProjectFormProps) {
       });
 
       window.location.assign(`/projects/${result.id}`);
-    } catch {
+    } catch (error) {
       setSubmitting(false);
-      setErrorMessage("Unable to create project.");
+      if (error instanceof Error && error.message.length > 0) {
+        setErrorMessage(error.message);
+      } else {
+        setErrorMessage("Unable to create project.");
+      }
     }
   }
 
