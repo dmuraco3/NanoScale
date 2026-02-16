@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -11,7 +12,10 @@ use axum::middleware;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use hmac::Mac;
+use rand::distributions::Alphanumeric;
+use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
+use tokio::sync::RwLock;
 use tower_sessions::{Session, SessionManagerLayer};
 use tower_sessions_sqlx_store::SqliteStore;
 use uuid::Uuid;
@@ -20,15 +24,25 @@ use crate::cluster::protocol::{GenerateTokenResponse, JoinClusterRequest, JoinCl
 use crate::cluster::signature::verify_cluster_signature;
 use crate::cluster::token_store::TokenStore;
 use crate::db::{DbClient, NewProject, NewServer, NewUser, ServerRecord};
+use crate::deployment::build::BuildSystem;
+use crate::deployment::git::Git;
+use crate::deployment::inactivity_monitor::{InactivityMonitor, MonitoredProject};
+use crate::deployment::nginx::NginxGenerator;
+use crate::deployment::systemd::SystemdGenerator;
+use crate::system::PrivilegeWrapper;
 
 const DEFAULT_DB_PATH: &str = "/opt/nanoscale/data/nanoscale.db";
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:4000";
+const DEFAULT_LOCAL_SERVER_ID: &str = "orchestrator-local";
+const DEFAULT_LOCAL_SERVER_NAME: &str = "orchestrator";
+const DEFAULT_LOCAL_SERVER_IP: &str = "127.0.0.1";
 const SESSION_USER_ID_KEY: &str = "user_id";
 
 #[derive(Debug, Clone)]
 pub struct OrchestratorState {
     pub db: DbClient,
     pub token_store: Arc<TokenStore>,
+    pub monitored_projects: Arc<RwLock<Vec<MonitoredProject>>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -79,7 +93,7 @@ struct CreateProjectResponse {
     id: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct WorkerCreateProjectRequest {
     project_id: String,
     name: String,
@@ -90,6 +104,12 @@ struct WorkerCreateProjectRequest {
     env_vars: Vec<ProjectEnvVar>,
 }
 
+#[derive(Debug, Serialize)]
+struct InternalProjectResponse {
+    status: &'static str,
+    message: String,
+}
+
 pub async fn run() -> Result<()> {
     let database_path =
         std::env::var("NANOSCALE_DB_PATH").unwrap_or_else(|_| DEFAULT_DB_PATH.to_string());
@@ -97,10 +117,32 @@ pub async fn run() -> Result<()> {
         .unwrap_or_else(|_| DEFAULT_BIND_ADDRESS.to_string());
     let db_client = DbClient::initialize(&database_path).await?;
 
+    let local_server_id = std::env::var("NANOSCALE_ORCHESTRATOR_SERVER_ID")
+        .unwrap_or_else(|_| DEFAULT_LOCAL_SERVER_ID.to_string());
+    let local_server_name = std::env::var("NANOSCALE_ORCHESTRATOR_SERVER_NAME")
+        .unwrap_or_else(|_| DEFAULT_LOCAL_SERVER_NAME.to_string());
+    let orchestrator_worker_ip = std::env::var("NANOSCALE_ORCHESTRATOR_WORKER_IP")
+        .unwrap_or_else(|_| DEFAULT_LOCAL_SERVER_IP.to_string());
+    let local_server_secret = generate_secret_key();
+
+    db_client
+        .upsert_server(&NewServer {
+            id: local_server_id,
+            name: local_server_name,
+            ip_address: orchestrator_worker_ip,
+            status: "online".to_string(),
+            secret_key: local_server_secret,
+        })
+        .await?;
+
     let state = OrchestratorState {
         db: db_client,
         token_store: Arc::new(TokenStore::new()),
+        monitored_projects: Arc::new(RwLock::new(Vec::new())),
     };
+
+    let monitor = InactivityMonitor::new(state.monitored_projects.clone());
+    monitor.spawn();
 
     let session_store = SqliteStore::new(state.db.pool());
     session_store.migrate().await?;
@@ -108,6 +150,7 @@ pub async fn run() -> Result<()> {
     let session_layer = SessionManagerLayer::new(session_store).with_secure(false);
 
     let internal_router = Router::new()
+        .route("/projects", post(internal_projects))
         .route("/verify-signature", post(verify_signature_guarded))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -194,6 +237,108 @@ async fn join_cluster(
 
 async fn verify_signature_guarded() -> StatusCode {
     StatusCode::OK
+}
+
+async fn internal_projects(
+    State(state): State<OrchestratorState>,
+    Json(payload): Json<WorkerCreateProjectRequest>,
+) -> (StatusCode, Json<InternalProjectResponse>) {
+    let project_id = payload.project_id;
+    let repo_url = payload.repo_url;
+    let branch = payload.branch;
+    let build_command = payload.build_command;
+    let port = payload.port;
+    let _env_var_pairs = payload
+        .env_vars
+        .into_iter()
+        .map(|env_var| (env_var.key, env_var.value))
+        .collect::<Vec<(String, String)>>();
+
+    let repo_dir = PathBuf::from(format!("/opt/nanoscale/tmp/{project_id}/source"));
+    let parent_dir = repo_dir
+        .parent()
+        .map_or_else(|| PathBuf::from("/opt/nanoscale/tmp"), PathBuf::from);
+
+    let repo_url_for_clone = repo_url.clone();
+    let branch_for_checkout = branch.clone();
+    let repo_dir_for_clone = repo_dir.clone();
+    let project_id_for_build = project_id.clone();
+    let build_command_for_run = build_command.clone();
+
+    let clone_result = tokio::task::spawn_blocking(move || {
+        Git::validate_repo_url(&repo_url_for_clone)?;
+        Git::validate_branch(&branch_for_checkout)?;
+
+        std::fs::create_dir_all(&parent_dir)?;
+
+        if repo_dir_for_clone.exists() {
+            std::fs::remove_dir_all(&repo_dir_for_clone)?;
+        }
+
+        Git::clone(&repo_url_for_clone, &repo_dir_for_clone)?;
+        Git::checkout(&repo_dir_for_clone, &branch_for_checkout)?;
+
+        let privilege_wrapper = PrivilegeWrapper::new();
+        let source_dir = BuildSystem::execute(
+            &project_id_for_build,
+            &repo_dir_for_clone,
+            &build_command_for_run,
+            &privilege_wrapper,
+        )?;
+
+        SystemdGenerator::generate_and_install(
+            &project_id_for_build,
+            &source_dir,
+            &privilege_wrapper,
+        )?;
+        NginxGenerator::generate_and_install(&project_id_for_build, port, &privilege_wrapper)?;
+
+        Result::<(), anyhow::Error>::Ok(())
+    })
+    .await;
+
+    let git_message = match clone_result {
+        Ok(Ok(())) => "Source cloned and branch checked out.",
+        Ok(Err(error)) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(InternalProjectResponse {
+                    status: "error",
+                    message: format!("Git operation failed: {error}"),
+                }),
+            );
+        }
+        Err(error) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(InternalProjectResponse {
+                    status: "error",
+                    message: format!("Git task failed: {error}"),
+                }),
+            );
+        }
+    };
+
+    {
+        let mut monitored_projects = state.monitored_projects.write().await;
+        monitored_projects
+            .retain(|project| project.service_name != format!("nanoscale-{project_id}.service"));
+        monitored_projects.push(MonitoredProject {
+            service_name: format!("nanoscale-{project_id}.service"),
+            port,
+            scale_to_zero: true,
+        });
+    }
+
+    (
+        StatusCode::ACCEPTED,
+        Json(InternalProjectResponse {
+            status: "accepted",
+            message: format!(
+                "{git_message} Build pipeline, systemd generation, and nginx configuration completed."
+            ),
+        }),
+    )
 }
 
 async fn auth_setup(
@@ -420,4 +565,12 @@ fn sign_internal_payload(
     hmac::Mac::update(&mut mac, timestamp.as_bytes());
     let signature = hex::encode(hmac::Mac::finalize(mac).into_bytes());
     Ok(signature)
+}
+
+fn generate_secret_key() -> String {
+    thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(64)
+        .map(char::from)
+        .collect()
 }
