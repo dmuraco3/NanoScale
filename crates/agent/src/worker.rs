@@ -12,7 +12,7 @@ use sysinfo::System;
 use tokio::sync::RwLock;
 
 use crate::cluster::protocol::{JoinClusterRequest, JoinClusterResponse};
-use crate::deployment::build::BuildSystem;
+use crate::deployment::build::{BuildSettings, BuildSystem};
 use crate::deployment::git::Git;
 use crate::deployment::inactivity_monitor::{InactivityMonitor, MonitoredProject};
 use crate::deployment::nginx::NginxGenerator;
@@ -43,6 +43,8 @@ struct WorkerCreateProjectRequest {
     repo_url: String,
     branch: String,
     build_command: String,
+    install_command: String,
+    output_directory: String,
     port: u16,
     env_vars: Vec<WorkerProjectEnvVar>,
 }
@@ -146,6 +148,7 @@ async fn internal_deploy() -> (StatusCode, Json<DeployPlaceholderResponse>) {
     )
 }
 
+#[allow(clippy::too_many_lines)]
 async fn internal_projects(
     State(state): State<WorkerState>,
     Json(payload): Json<WorkerCreateProjectRequest>,
@@ -154,6 +157,8 @@ async fn internal_projects(
     let repo_url = payload.repo_url;
     let branch = payload.branch;
     let build_command = payload.build_command;
+    let install_command = payload.install_command;
+    let output_directory = payload.output_directory;
     let port = payload.port;
     let _env_var_pairs = payload
         .env_vars
@@ -171,6 +176,8 @@ async fn internal_projects(
     let repo_dir_for_clone = repo_dir.clone();
     let project_id_for_build = project_id.clone();
     let build_command_for_run = build_command.clone();
+    let install_command_for_run = install_command.clone();
+    let output_directory_for_run = output_directory.clone();
 
     let clone_result = tokio::task::spawn_blocking(move || {
         Git::validate_repo_url(&repo_url_for_clone).context("repo URL validation failed")?;
@@ -188,10 +195,16 @@ async fn internal_projects(
             .context("git checkout step failed")?;
 
         let privilege_wrapper = PrivilegeWrapper::new();
+        let build_settings = BuildSettings {
+            build_command: build_command_for_run,
+            output_directory: output_directory_for_run,
+            install_command: install_command_for_run,
+        };
+
         let build_output = BuildSystem::execute(
             &project_id_for_build,
             &repo_dir_for_clone,
-            &build_command_for_run,
+            &build_settings,
             &privilege_wrapper,
         )
         .context("build pipeline failed")?;

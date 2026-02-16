@@ -13,6 +13,8 @@ export interface CreateProjectPayload {
   repo_url: string;
   branch: string;
   build_command: string;
+  install_command: string;
+  output_directory: string;
   env_vars: ProjectEnvVar[];
 }
 

@@ -16,6 +16,13 @@ const RUNTIME_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/s
 pub struct BuildSystem;
 
 #[derive(Clone, Debug)]
+pub struct BuildSettings {
+    pub build_command: String,
+    pub output_directory: String,
+    pub install_command: String,
+}
+
+#[derive(Clone, Debug)]
 pub enum AppRuntime {
     StandaloneNode,
     BunStart { bun_binary: String },
@@ -31,34 +38,26 @@ impl BuildSystem {
     pub fn execute(
         project_id: &str,
         repo_dir: &Path,
-        build_command: &str,
+        settings: &BuildSettings,
         privilege_wrapper: &PrivilegeWrapper,
     ) -> Result<BuildOutput> {
         Self::ensure_swap_if_low_ram(privilege_wrapper)
             .map_err(|error| anyhow::anyhow!("swap provisioning failed: {error:#}"))?;
-        Self::run_install(repo_dir)
+        Self::run_command(repo_dir, &settings.install_command, "dependency install")
             .map_err(|error| anyhow::anyhow!("dependency install failed: {error:#}"))?;
-        Self::run_build(repo_dir, build_command)
+        Self::run_command(repo_dir, &settings.build_command, "application build")
             .map_err(|error| anyhow::anyhow!("application build failed: {error:#}"))?;
 
         let destination_dir = PathBuf::from(format!("{SOURCE_BASE_PATH}/{project_id}/source"));
-        let standalone_dir = repo_dir.join(".next/standalone");
-        let runtime = if standalone_dir.is_dir() {
-            Self::replace_directory(&standalone_dir, &destination_dir)
-                .map_err(|error| anyhow::anyhow!("artifact copy failed: {error:#}"))?;
+        let artifact_source_dir =
+            Self::resolve_output_directory(repo_dir, &settings.output_directory)?;
+
+        Self::replace_directory(&artifact_source_dir, &destination_dir)
+            .map_err(|error| anyhow::anyhow!("artifact copy failed: {error:#}"))?;
+
+        let runtime = if destination_dir.join("server.js").is_file() {
             AppRuntime::StandaloneNode
         } else {
-            let dot_next_dir = repo_dir.join(".next");
-            if !dot_next_dir.is_dir() {
-                bail!(
-                    "build finished but .next output directory is missing: {}",
-                    dot_next_dir.display()
-                );
-            }
-
-            Self::replace_directory(repo_dir, &destination_dir)
-                .map_err(|error| anyhow::anyhow!("full app copy failed: {error:#}"))?;
-
             let bun_binary = Self::bun_binary()
                 .map_err(|error| anyhow::anyhow!("bun runtime resolution failed: {error:#}"))?;
             AppRuntime::BunStart { bun_binary }
@@ -90,48 +89,78 @@ impl BuildSystem {
         Ok(())
     }
 
-    fn run_install(repo_dir: &Path) -> Result<()> {
-        let bun_binary = Self::bun_binary()?;
-        let mut command = Command::new(bun_binary);
+    fn run_command(repo_dir: &Path, raw_command: &str, command_label: &str) -> Result<()> {
+        let (program, arguments) = Self::parse_command(raw_command)?;
+
+        let executable = if program == "bun" {
+            Self::bun_binary()?
+        } else {
+            program
+        };
+
+        let mut command = Command::new(executable);
         Self::apply_runtime_env(&mut command);
 
         let output = command
-            .arg("install")
-            .arg("--frozen-lockfile")
+            .args(arguments)
             .current_dir(repo_dir)
             .output()
-            .map_err(|error| anyhow::anyhow!("failed to execute bun install command: {error}"))?;
+            .map_err(|error| {
+                anyhow::anyhow!("failed to execute {command_label} command: {error}")
+            })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("bun install failed: {stderr}");
+            bail!("{command_label} command failed: {stderr}");
         }
 
         Ok(())
     }
 
-    fn run_build(repo_dir: &Path, build_command: &str) -> Result<()> {
-        if build_command.trim() != "bun run build" {
-            bail!("unsupported build command for phase 3.2: {build_command}");
+    fn parse_command(raw_command: &str) -> Result<(String, Vec<String>)> {
+        let trimmed_command = raw_command.trim();
+        if trimmed_command.is_empty() {
+            bail!("command cannot be empty");
         }
 
-        let bun_binary = Self::bun_binary()?;
-        let mut command = Command::new(bun_binary);
-        Self::apply_runtime_env(&mut command);
-
-        let output = command
-            .arg("run")
-            .arg("build")
-            .current_dir(repo_dir)
-            .output()
-            .map_err(|error| anyhow::anyhow!("failed to execute bun run build command: {error}"))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("bun run build failed: {stderr}");
+        let forbidden_characters = [';', '|', '&', '>', '<', '`', '$', '\n', '\r'];
+        if trimmed_command
+            .chars()
+            .any(|character| forbidden_characters.contains(&character))
+        {
+            bail!("command contains unsupported shell control characters");
         }
 
-        Ok(())
+        let mut parts = trimmed_command.split_whitespace();
+        let program = parts
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("command program is missing"))?
+            .to_string();
+        let arguments = parts.map(ToString::to_string).collect::<Vec<String>>();
+
+        Ok((program, arguments))
+    }
+
+    fn resolve_output_directory(repo_dir: &Path, output_directory: &str) -> Result<PathBuf> {
+        let trimmed_output_directory = output_directory.trim();
+        if trimmed_output_directory.is_empty() {
+            return Ok(repo_dir.to_path_buf());
+        }
+
+        let candidate_dir = repo_dir.join(trimmed_output_directory);
+        if candidate_dir.is_dir() {
+            return Ok(candidate_dir);
+        }
+
+        let dot_next_dir = repo_dir.join(".next");
+        if trimmed_output_directory == ".next/standalone" && dot_next_dir.is_dir() {
+            return Ok(repo_dir.to_path_buf());
+        }
+
+        bail!(
+            "configured output directory not found: {}",
+            candidate_dir.display()
+        )
     }
 
     fn replace_directory(source_dir: &Path, destination_dir: &Path) -> Result<()> {

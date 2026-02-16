@@ -9,15 +9,53 @@ interface ProjectFormProps {
   servers: ServerListItem[];
 }
 
+type AppPresetKey = "nextjs";
+
+interface AppPreset {
+  key: AppPresetKey;
+  label: string;
+  buildCommand: string;
+  installCommand: string;
+  outputDirectory: string;
+}
+
+const APP_PRESETS: AppPreset[] = [
+  {
+    key: "nextjs",
+    label: "Next.js",
+    buildCommand: "bun run build",
+    installCommand: "bun install --frozen-lockfile",
+    outputDirectory: ".next/standalone",
+  },
+];
+
 export default function ProjectForm(props: ProjectFormProps) {
+  const defaultPreset = APP_PRESETS[0];
+
   const [repoUrl, setRepoUrl] = useState("");
   const [branch, setBranch] = useState("main");
   const [name, setName] = useState("");
-  const [buildCommand, setBuildCommand] = useState("bun run build");
+  const [preset, setPreset] = useState<AppPresetKey>(defaultPreset.key);
+  const [buildCommand, setBuildCommand] = useState(defaultPreset.buildCommand);
+  const [installCommand, setInstallCommand] = useState(defaultPreset.installCommand);
+  const [outputDirectory, setOutputDirectory] = useState(defaultPreset.outputDirectory);
   const [serverId, setServerId] = useState(props.servers[0]?.id ?? "");
   const [envVars, setEnvVars] = useState<ProjectEnvVar[]>([{ key: "", value: "" }]);
   const [isSubmitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+
+  function handlePresetChange(nextPresetKey: AppPresetKey) {
+    setPreset(nextPresetKey);
+
+    const selectedPreset = APP_PRESETS.find((item) => item.key === nextPresetKey);
+    if (!selectedPreset) {
+      return;
+    }
+
+    setBuildCommand(selectedPreset.buildCommand);
+    setInstallCommand(selectedPreset.installCommand);
+    setOutputDirectory(selectedPreset.outputDirectory);
+  }
 
   function updateEnvVar(index: number, next: ProjectEnvVar) {
     setEnvVars((current) => current.map((entry, i) => (i === index ? next : entry)));
@@ -47,6 +85,8 @@ export default function ProjectForm(props: ProjectFormProps) {
         repo_url: repoUrl,
         branch,
         build_command: buildCommand,
+        install_command: installCommand,
+        output_directory: outputDirectory,
         env_vars: filteredEnvVars,
       });
 
@@ -121,6 +161,38 @@ export default function ProjectForm(props: ProjectFormProps) {
             </div>
 
             <div>
+              <label className="mb-1 block text-sm text-zinc-300" htmlFor="app-preset">
+                application_preset
+              </label>
+              <select
+                id="app-preset"
+                className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
+                value={preset}
+                onChange={(event) => handlePresetChange(event.target.value as AppPresetKey)}
+                required
+              >
+                {APP_PRESETS.map((item) => (
+                  <option key={item.key} value={item.key}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm text-zinc-300" htmlFor="install-command">
+                install_command
+              </label>
+              <input
+                id="install-command"
+                className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
+                value={installCommand}
+                onChange={(event) => setInstallCommand(event.target.value)}
+                required
+              />
+            </div>
+
+            <div>
               <label className="mb-1 block text-sm text-zinc-300" htmlFor="build-command">
                 build_command
               </label>
@@ -129,6 +201,19 @@ export default function ProjectForm(props: ProjectFormProps) {
                 className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
                 value={buildCommand}
                 onChange={(event) => setBuildCommand(event.target.value)}
+                required
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm text-zinc-300" htmlFor="output-directory">
+                output_directory
+              </label>
+              <input
+                id="output-directory"
+                className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
+                value={outputDirectory}
+                onChange={(event) => setOutputDirectory(event.target.value)}
                 required
               />
             </div>
