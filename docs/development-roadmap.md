@@ -148,12 +148,12 @@ Must run as root.
 
 ### 3.5 Scale-to-Zero Implementation
 
-- [ ] Implement `InactivityMonitor` struct in Rust.
-- [ ] Spawn a Tokio background task (Interval: 60s).
-- [ ] Loop through active projects:
-	- [ ] Run `sudo systemctl show --property=ActiveEnterTimestamp ...`.
-	- [ ] Run `ss -tn src :{port} | wc -l`.
-	- [ ] Logic: If `connections == 0` AND `uptime > 15m` THEN `sudo systemctl stop {service}`.
+- [x] Implement `InactivityMonitor` struct in Rust.
+- [x] Spawn a Tokio background task (Interval: 60s).
+- [x] Loop through active projects:
+	- [x] Run `sudo systemctl show --property=ActiveEnterTimestamp ...`.
+	- [x] Run `ss -tn src :{port} | wc -l`.
+	- [x] Logic: If `connections == 0` AND `uptime > 15m` THEN `sudo systemctl stop {service}`.
 
 ## Phase 4: Remote Build & Monetization (Weeks 9-10)
 

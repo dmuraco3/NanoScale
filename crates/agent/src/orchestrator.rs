@@ -86,6 +86,7 @@ struct WorkerCreateProjectRequest {
     repo_url: String,
     branch: String,
     build_command: String,
+    port: u16,
     env_vars: Vec<ProjectEnvVar>,
 }
 
@@ -382,6 +383,7 @@ async fn call_worker_create_project(
         repo_url: payload.repo_url.clone(),
         branch: payload.branch.clone(),
         build_command: payload.build_command.clone(),
+        port: 3000,
         env_vars: payload.env_vars.clone(),
     };
 

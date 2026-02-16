@@ -1,4 +1,5 @@
 use anyhow::Result;
+use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::post;
 use axum::{Json, Router};
@@ -6,11 +7,14 @@ use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::sync::Arc;
 use sysinfo::System;
+use tokio::sync::RwLock;
 
 use crate::cluster::protocol::{JoinClusterRequest, JoinClusterResponse};
 use crate::deployment::build::BuildSystem;
 use crate::deployment::git::Git;
+use crate::deployment::inactivity_monitor::{InactivityMonitor, MonitoredProject};
 use crate::deployment::nginx::NginxGenerator;
 use crate::deployment::systemd::SystemdGenerator;
 use crate::system::PrivilegeWrapper;
@@ -39,6 +43,7 @@ struct WorkerCreateProjectRequest {
     repo_url: String,
     branch: String,
     build_command: String,
+    port: u16,
     env_vars: Vec<WorkerProjectEnvVar>,
 }
 
@@ -52,6 +57,11 @@ struct WorkerProjectEnvVar {
 struct CreateProjectPlaceholderResponse {
     status: &'static str,
     message: String,
+}
+
+#[derive(Clone, Debug)]
+struct WorkerState {
+    monitored_projects: Arc<RwLock<Vec<MonitoredProject>>>,
 }
 
 pub async fn run(join_token: &str) -> Result<()> {
@@ -94,10 +104,17 @@ pub async fn run(join_token: &str) -> Result<()> {
         join_response.server_id
     );
 
+    let worker_state = WorkerState {
+        monitored_projects: Arc::new(RwLock::new(Vec::new())),
+    };
+    let monitor = InactivityMonitor::new(worker_state.monitored_projects.clone());
+    monitor.spawn();
+
     let app = Router::new()
         .route("/internal/health", post(internal_health))
         .route("/internal/deploy", post(internal_deploy))
-        .route("/internal/projects", post(internal_projects));
+        .route("/internal/projects", post(internal_projects))
+        .with_state(worker_state);
 
     let listener = tokio::net::TcpListener::bind(&worker_bind).await?;
     println!("Worker internal API listening on: {worker_bind}");
@@ -130,12 +147,14 @@ async fn internal_deploy() -> (StatusCode, Json<DeployPlaceholderResponse>) {
 }
 
 async fn internal_projects(
+    State(state): State<WorkerState>,
     Json(payload): Json<WorkerCreateProjectRequest>,
 ) -> (StatusCode, Json<CreateProjectPlaceholderResponse>) {
     let project_id = payload.project_id;
     let repo_url = payload.repo_url;
     let branch = payload.branch;
     let build_command = payload.build_command;
+    let port = payload.port;
     let _env_var_pairs = payload
         .env_vars
         .into_iter()
@@ -206,6 +225,17 @@ async fn internal_projects(
             );
         }
     };
+
+    {
+        let mut monitored_projects = state.monitored_projects.write().await;
+        monitored_projects
+            .retain(|project| project.service_name != format!("nanoscale-{project_id}.service"));
+        monitored_projects.push(MonitoredProject {
+            service_name: format!("nanoscale-{project_id}.service"),
+            port,
+            scale_to_zero: true,
+        });
+    }
 
     (
         StatusCode::ACCEPTED,
