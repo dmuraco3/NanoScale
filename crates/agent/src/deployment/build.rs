@@ -21,21 +21,26 @@ impl BuildSystem {
         build_command: &str,
         privilege_wrapper: &PrivilegeWrapper,
     ) -> Result<PathBuf> {
-        Self::ensure_swap_if_low_ram(privilege_wrapper)?;
-        Self::run_install(repo_dir)?;
-        Self::run_build(repo_dir, build_command)?;
+        Self::ensure_swap_if_low_ram(privilege_wrapper)
+            .map_err(|error| anyhow::anyhow!("swap provisioning failed: {error:#}"))?;
+        Self::run_install(repo_dir)
+            .map_err(|error| anyhow::anyhow!("dependency install failed: {error:#}"))?;
+        Self::run_build(repo_dir, build_command)
+            .map_err(|error| anyhow::anyhow!("application build failed: {error:#}"))?;
 
         let standalone_dir = repo_dir.join(".next/standalone");
         if !standalone_dir.is_dir() {
             bail!(
-                "expected artifact directory not found: {}",
+                "expected artifact directory not found: {} (ensure project sets Next.js output='standalone')",
                 standalone_dir.display()
             );
         }
 
         let destination_dir = PathBuf::from(format!("{SOURCE_BASE_PATH}/{project_id}/source"));
-        Self::replace_directory(&standalone_dir, &destination_dir)?;
-        Self::apply_project_ownership(project_id, &destination_dir, privilege_wrapper)?;
+        Self::replace_directory(&standalone_dir, &destination_dir)
+            .map_err(|error| anyhow::anyhow!("artifact copy failed: {error:#}"))?;
+        Self::apply_project_ownership(project_id, &destination_dir, privilege_wrapper)
+            .map_err(|error| anyhow::anyhow!("artifact ownership setup failed: {error:#}"))?;
 
         Ok(destination_dir)
     }

@@ -311,7 +311,7 @@ async fn internal_projects(
                 StatusCode::BAD_REQUEST,
                 Json(InternalProjectResponse {
                     status: "error",
-                    message: format!("Deployment pipeline failed: {error}"),
+                    message: format!("Deployment pipeline failed: {error:#}"),
                 }),
             );
         }
@@ -320,7 +320,7 @@ async fn internal_projects(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(InternalProjectResponse {
                     status: "error",
-                    message: format!("Git task failed: {error}"),
+                    message: format!("Git task failed: {error:#}"),
                 }),
             );
         }
