@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { clientApiBaseUrl } from "@/lib/auth-api";
+import { clientApiBaseUrl } from "@/lib/api-base-url";
 
 export default function SetupForm() {
   const [username, setUsername] = useState("");

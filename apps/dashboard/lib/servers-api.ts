@@ -2,7 +2,7 @@
 
 import { headers } from "next/headers";
 
-import { clientApiBaseUrl } from "@/lib/auth-api";
+import { clientApiBaseUrl } from "@/lib/api-base-url";
 
 export interface ServerListItem {
   id: string;
