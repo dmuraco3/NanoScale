@@ -2,8 +2,6 @@
 
 import { headers } from "next/headers";
 
-import { clientApiBaseUrl } from "@/lib/api-base-url";
-
 export interface AuthStatus {
   users_count: number;
   authenticated: boolean;
@@ -12,8 +10,9 @@ export interface AuthStatus {
 export async function fetchAuthStatus(): Promise<AuthStatus> {
   const requestHeaders = await headers();
   const cookie = requestHeaders.get("cookie") ?? "";
+  const internalApiUrl = process.env.NANOSCALE_INTERNAL_API_URL ?? "http://127.0.0.1:4000";
 
-  const response = await fetch(`${clientApiBaseUrl()}/api/auth/status`, {
+  const response = await fetch(`${internalApiUrl}/api/auth/status`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
