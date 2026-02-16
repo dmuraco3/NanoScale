@@ -10,9 +10,22 @@ use crate::system::PrivilegeWrapper;
 const MIN_RAM_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const SWAP_FILE_PATH: &str = "/opt/nanoscale/tmp/nanoscale.swap";
 const SOURCE_BASE_PATH: &str = "/opt/nanoscale/sites";
+const RUNTIME_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 
 #[derive(Debug)]
 pub struct BuildSystem;
+
+#[derive(Clone, Debug)]
+pub enum AppRuntime {
+    StandaloneNode,
+    BunStart { bun_binary: String },
+}
+
+#[derive(Debug)]
+pub struct BuildOutput {
+    pub source_dir: PathBuf,
+    pub runtime: AppRuntime,
+}
 
 impl BuildSystem {
     pub fn execute(
@@ -20,7 +33,7 @@ impl BuildSystem {
         repo_dir: &Path,
         build_command: &str,
         privilege_wrapper: &PrivilegeWrapper,
-    ) -> Result<PathBuf> {
+    ) -> Result<BuildOutput> {
         Self::ensure_swap_if_low_ram(privilege_wrapper)
             .map_err(|error| anyhow::anyhow!("swap provisioning failed: {error:#}"))?;
         Self::run_install(repo_dir)
@@ -28,21 +41,36 @@ impl BuildSystem {
         Self::run_build(repo_dir, build_command)
             .map_err(|error| anyhow::anyhow!("application build failed: {error:#}"))?;
 
-        let standalone_dir = repo_dir.join(".next/standalone");
-        if !standalone_dir.is_dir() {
-            bail!(
-                "expected artifact directory not found: {} (ensure project sets Next.js output='standalone')",
-                standalone_dir.display()
-            );
-        }
-
         let destination_dir = PathBuf::from(format!("{SOURCE_BASE_PATH}/{project_id}/source"));
-        Self::replace_directory(&standalone_dir, &destination_dir)
-            .map_err(|error| anyhow::anyhow!("artifact copy failed: {error:#}"))?;
+        let standalone_dir = repo_dir.join(".next/standalone");
+        let runtime = if standalone_dir.is_dir() {
+            Self::replace_directory(&standalone_dir, &destination_dir)
+                .map_err(|error| anyhow::anyhow!("artifact copy failed: {error:#}"))?;
+            AppRuntime::StandaloneNode
+        } else {
+            let dot_next_dir = repo_dir.join(".next");
+            if !dot_next_dir.is_dir() {
+                bail!(
+                    "build finished but .next output directory is missing: {}",
+                    dot_next_dir.display()
+                );
+            }
+
+            Self::replace_directory(repo_dir, &destination_dir)
+                .map_err(|error| anyhow::anyhow!("full app copy failed: {error:#}"))?;
+
+            let bun_binary = Self::bun_binary()
+                .map_err(|error| anyhow::anyhow!("bun runtime resolution failed: {error:#}"))?;
+            AppRuntime::BunStart { bun_binary }
+        };
+
         Self::apply_project_ownership(project_id, &destination_dir, privilege_wrapper)
             .map_err(|error| anyhow::anyhow!("artifact ownership setup failed: {error:#}"))?;
 
-        Ok(destination_dir)
+        Ok(BuildOutput {
+            source_dir: destination_dir,
+            runtime,
+        })
     }
 
     fn ensure_swap_if_low_ram(privilege_wrapper: &PrivilegeWrapper) -> Result<()> {
@@ -64,8 +92,10 @@ impl BuildSystem {
 
     fn run_install(repo_dir: &Path) -> Result<()> {
         let bun_binary = Self::bun_binary()?;
+        let mut command = Command::new(bun_binary);
+        Self::apply_runtime_env(&mut command);
 
-        let output = Command::new(bun_binary)
+        let output = command
             .arg("install")
             .arg("--frozen-lockfile")
             .current_dir(repo_dir)
@@ -86,8 +116,10 @@ impl BuildSystem {
         }
 
         let bun_binary = Self::bun_binary()?;
+        let mut command = Command::new(bun_binary);
+        Self::apply_runtime_env(&mut command);
 
-        let output = Command::new(bun_binary)
+        let output = command
             .arg("run")
             .arg("build")
             .current_dir(repo_dir)
@@ -176,5 +208,9 @@ impl BuildSystem {
 
         let current_path = std::env::var("PATH").unwrap_or_default();
         bail!("bun binary not found; install bun or set NANOSCALE_BUN_BIN (PATH={current_path})")
+    }
+
+    fn apply_runtime_env(command: &mut Command) {
+        command.env("PATH", RUNTIME_PATH);
     }
 }

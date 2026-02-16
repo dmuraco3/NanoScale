@@ -283,7 +283,7 @@ async fn internal_projects(
             .context("git checkout step failed")?;
 
         let privilege_wrapper = PrivilegeWrapper::new();
-        let source_dir = BuildSystem::execute(
+        let build_output = BuildSystem::execute(
             &project_id_for_build,
             &repo_dir_for_clone,
             &build_command_for_run,
@@ -293,7 +293,8 @@ async fn internal_projects(
 
         SystemdGenerator::generate_and_install(
             &project_id_for_build,
-            &source_dir,
+            &build_output.source_dir,
+            &build_output.runtime,
             &privilege_wrapper,
         )
         .context("systemd generation failed")?;

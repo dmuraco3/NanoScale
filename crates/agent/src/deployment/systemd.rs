@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Result};
 
+use crate::deployment::build::AppRuntime;
 use crate::system::PrivilegeWrapper;
 
 const TMP_BASE_PATH: &str = "/opt/nanoscale/tmp";
@@ -15,6 +16,7 @@ impl SystemdGenerator {
     pub fn generate_and_install(
         project_id: &str,
         source_dir: &Path,
+        runtime: &AppRuntime,
         privilege_wrapper: &PrivilegeWrapper,
     ) -> Result<()> {
         let service_name = format!("nanoscale-{project_id}");
@@ -29,7 +31,8 @@ impl SystemdGenerator {
             .to_str()
             .ok_or_else(|| anyhow!("invalid source path"))?;
 
-        let service_template = Self::service_template(&service_name, project_id, source_dir_string);
+        let service_template =
+            Self::service_template(&service_name, project_id, source_dir_string, runtime);
         let socket_template = Self::socket_template(&service_name);
 
         fs::write(&tmp_service_path, service_template)?;
@@ -51,9 +54,21 @@ impl SystemdGenerator {
         Ok(())
     }
 
-    fn service_template(service_name: &str, project_id: &str, source_dir: &str) -> String {
+    fn service_template(
+        service_name: &str,
+        project_id: &str,
+        source_dir: &str,
+        runtime: &AppRuntime,
+    ) -> String {
+        let exec_start = match runtime {
+            AppRuntime::StandaloneNode => format!("/usr/bin/node {source_dir}/server.js"),
+            AppRuntime::BunStart { bun_binary } => {
+                format!("{bun_binary} run start -- --hostname 127.0.0.1 --port 3000")
+            }
+        };
+
         format!(
-            "[Unit]\nDescription=NanoScale app service ({service_name})\nAfter=network.target\n\n[Service]\nType=simple\nUser=nanoscale-{project_id}\nGroup=nanoscale-{project_id}\nWorkingDirectory={source_dir}\nEnvironment=NODE_ENV=production\nExecStart=/usr/bin/node {source_dir}/server.js\nRestart=always\nRestartSec=2\n\n# SECURITY HARDENING\nProtectSystem=strict\nProtectHome=yes\nPrivateTmp=yes\nNoNewPrivileges=yes\nProtectProc=invisible\nReadWritePaths={source_dir}\n\n[Install]\nWantedBy=multi-user.target\n"
+            "[Unit]\nDescription=NanoScale app service ({service_name})\nAfter=network.target\n\n[Service]\nType=simple\nUser=nanoscale-{project_id}\nGroup=nanoscale-{project_id}\nWorkingDirectory={source_dir}\nEnvironment=NODE_ENV=production\nEnvironment=PORT=3000\nExecStart={exec_start}\nRestart=always\nRestartSec=2\n\n# SECURITY HARDENING\nProtectSystem=strict\nProtectHome=yes\nPrivateTmp=yes\nNoNewPrivileges=yes\nProtectProc=invisible\nReadWritePaths={source_dir}\n\n[Install]\nWantedBy=multi-user.target\n"
         )
     }
 
