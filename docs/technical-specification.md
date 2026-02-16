@@ -9,6 +9,7 @@
 - [UI Specification](ui-specification.md)
 - [Code Style Guide](code-style-guide.md)
 - [Development Roadmap](development-roadmap.md)
+- [Installation & Run Guide](installation-and-run-guide.md)
 
 ## 1. System Architecture & Technology Stack
 
