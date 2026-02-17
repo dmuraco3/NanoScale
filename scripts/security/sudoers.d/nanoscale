@@ -7,5 +7,8 @@ nanoscale ALL=(root) NOPASSWD: /usr/sbin/service nginx reload
 # Allow user management with strict prefixes
 nanoscale ALL=(root) NOPASSWD: /usr/sbin/useradd, /usr/sbin/userdel
 
+# Allow ownership updates for deployed app directories
+nanoscale ALL=(root) NOPASSWD: /usr/bin/chown
+
 # Allow certbot (Risk: High, but necessary for SSL)
 nanoscale ALL=(root) NOPASSWD: /usr/bin/certbot --nginx *
