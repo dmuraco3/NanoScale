@@ -39,6 +39,8 @@ impl PrivilegeWrapper {
             return Err(anyhow!("binary path is not allowed: {binary_path}"));
         }
 
+        self.validate_command_args(binary_path, args)?;
+
         let output = Command::new(SUDO_BIN)
             .arg("-n")
             .arg(binary_path)
@@ -54,5 +56,132 @@ impl PrivilegeWrapper {
         }
 
         Ok(output)
+    }
+
+    fn validate_command_args(&self, binary_path: &str, args: &[&str]) -> Result<()> {
+        match binary_path {
+            SYSTEMCTL_BIN => self.validate_systemctl_args(args),
+            SERVICE_BIN => self.validate_service_args(args),
+            USERADD_BIN => self.validate_useradd_args(args),
+            USERDEL_BIN => self.validate_userdel_args(args),
+            CERTBOT_BIN => self.validate_certbot_args(args),
+            MV_BIN => self.validate_mv_args(args),
+            CHOWN_BIN => self.validate_chown_args(args),
+            FALLOCATE_BIN => self.validate_fallocate_args(args),
+            _ => Err(anyhow!("unsupported binary path: {binary_path}")),
+        }
+    }
+
+    fn validate_systemctl_args(&self, args: &[&str]) -> Result<()> {
+        if args == ["daemon-reload"] {
+            return Ok(());
+        }
+
+        if args == ["status", "nanoscale-agent"] {
+            return Ok(());
+        }
+
+        if args.len() == 2
+            && matches!(args[0], "start" | "stop" | "restart")
+            && args[1].starts_with("nanoscale-")
+        {
+            return Ok(());
+        }
+
+        Err(anyhow!("systemctl arguments are not allowed: {args:?}"))
+    }
+
+    fn validate_service_args(&self, args: &[&str]) -> Result<()> {
+        if args == ["nginx", "reload"] {
+            return Ok(());
+        }
+
+        Err(anyhow!("service arguments are not allowed: {args:?}"))
+    }
+
+    fn validate_useradd_args(&self, args: &[&str]) -> Result<()> {
+        if args.len() == 4
+            && args[0] == "-r"
+            && args[1] == "-s"
+            && args[2] == "/bin/false"
+            && args[3].starts_with("nanoscale-")
+        {
+            return Ok(());
+        }
+
+        Err(anyhow!("useradd arguments are not allowed: {args:?}"))
+    }
+
+    fn validate_userdel_args(&self, args: &[&str]) -> Result<()> {
+        if args.len() == 1 && args[0].starts_with("nanoscale-") {
+            return Ok(());
+        }
+
+        Err(anyhow!("userdel arguments are not allowed: {args:?}"))
+    }
+
+    fn validate_certbot_args(&self, args: &[&str]) -> Result<()> {
+        if args.len() >= 2 && args[0] == "--nginx" {
+            return Ok(());
+        }
+
+        Err(anyhow!("certbot arguments are not allowed: {args:?}"))
+    }
+
+    fn validate_mv_args(&self, args: &[&str]) -> Result<()> {
+        if args.len() != 2 {
+            return Err(anyhow!("mv requires source and destination paths"));
+        }
+
+        let source = args[0];
+        let destination = args[1];
+
+        let source_allowed = source.starts_with("/opt/nanoscale/tmp/nanoscale-")
+            && (source.ends_with(".service")
+                || source.ends_with(".socket")
+                || source.ends_with(".conf"));
+
+        let destination_allowed = (destination.starts_with("/etc/systemd/system/nanoscale-")
+            && (destination.ends_with(".service") || destination.ends_with(".socket")))
+            || (destination.starts_with("/etc/nginx/sites-available/nanoscale-")
+                && destination.ends_with(".conf"));
+
+        if source_allowed && destination_allowed {
+            return Ok(());
+        }
+
+        Err(anyhow!("mv arguments are not allowed: {args:?}"))
+    }
+
+    fn validate_chown_args(&self, args: &[&str]) -> Result<()> {
+        if args.len() != 3 || args[0] != "-R" {
+            return Err(anyhow!("chown arguments are not allowed: {args:?}"));
+        }
+
+        let owner = args[1];
+        let destination = args[2];
+
+        let owner_allowed = if let Some((user, group)) = owner.split_once(':') {
+            user.starts_with("nanoscale-") && group.starts_with("nanoscale-")
+        } else {
+            false
+        };
+
+        let destination_allowed = destination.starts_with("/opt/nanoscale/sites/nanoscale-")
+            || destination.starts_with("/opt/nanoscale/sites/");
+
+        if owner_allowed && destination_allowed {
+            return Ok(());
+        }
+
+        Err(anyhow!("chown arguments are not allowed: {args:?}"))
+    }
+
+    fn validate_fallocate_args(&self, args: &[&str]) -> Result<()> {
+        if args == ["-l", "2G", "/opt/nanoscale/tmp/nanoscale.swap"] {
+            return Ok(());
+        }
+
+        Err(anyhow!("fallocate arguments are not allowed: {args:?}"))
     }
 }

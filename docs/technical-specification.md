@@ -220,7 +220,7 @@ ReadWritePaths=/opt/nanoscale/sites/{id}/source
 
 ```sudoers
 # Allow restarting ONLY nanoscale services
-nanoscale ALL=(root) NOPASSWD: /usr/bin/systemctl start nanoscale-*, /usr/bin/systemctl stop nanoscale-*, /usr/bin/systemctl restart nanoscale-*, /usr/bin/systemctl daemon-reload
+nanoscale ALL=(root) NOPASSWD: /usr/bin/systemctl
 
 # Allow reloading nginx (safe operation)
 nanoscale ALL=(root) NOPASSWD: /usr/sbin/service nginx reload
@@ -234,9 +234,12 @@ nanoscale ALL=(root) NOPASSWD: /usr/bin/chown
 # Allow installing generated systemd unit files
 nanoscale ALL=(root) NOPASSWD: /usr/bin/mv
 
+# Allow swap file allocation on low-memory hosts
+nanoscale ALL=(root) NOPASSWD: /usr/bin/fallocate
+
 # Allow certbot (Risk: High, but necessary for SSL)
-nanoscale ALL=(root) NOPASSWD: /usr/bin/certbot --nginx *
+nanoscale ALL=(root) NOPASSWD: /usr/bin/certbot
 ```
 
-Note: On hosts using `sudo-rs`, argument-level wildcard matching in sudoers may be stricter than classic sudo. NanoScale enforces the `nanoscale-<project_id>` naming constraint in application code, while sudoers grants only the specific binaries.
+Note: On hosts using `sudo-rs`, argument-level wildcard matching in sudoers may be stricter than classic sudo. NanoScale enforces strict per-command argument validation in Rust (`PrivilegeWrapper`) while sudoers grants only the required binaries.
 
