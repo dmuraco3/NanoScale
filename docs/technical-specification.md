@@ -226,9 +226,11 @@ nanoscale ALL=(root) NOPASSWD: /usr/bin/systemctl start nanoscale-*, /usr/bin/sy
 nanoscale ALL=(root) NOPASSWD: /usr/sbin/service nginx reload
 
 # Allow user management with strict prefixes
-nanoscale ALL=(root) NOPASSWD: /usr/sbin/useradd -r -s /bin/false nanoscale-*, /usr/sbin/userdel nanoscale-*
+nanoscale ALL=(root) NOPASSWD: /usr/sbin/useradd, /usr/sbin/userdel
 
 # Allow certbot (Risk: High, but necessary for SSL)
 nanoscale ALL=(root) NOPASSWD: /usr/bin/certbot --nginx *
 ```
+
+Note: On hosts using `sudo-rs`, argument-level wildcard matching in sudoers may be stricter than classic sudo. NanoScale enforces the `nanoscale-<project_id>` naming constraint in application code, while sudoers grants only the specific binaries.
 
