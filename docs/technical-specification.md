@@ -220,7 +220,7 @@ ReadWritePaths=/opt/nanoscale/sites/{id}/source
 
 ```sudoers
 # Allow restarting ONLY nanoscale services
-nanoscale ALL=(root) NOPASSWD: /usr/bin/systemctl start nanoscale-*, /usr/bin/systemctl stop nanoscale-*, /usr/bin/systemctl restart nanoscale-*
+nanoscale ALL=(root) NOPASSWD: /usr/bin/systemctl start nanoscale-*, /usr/bin/systemctl stop nanoscale-*, /usr/bin/systemctl restart nanoscale-*, /usr/bin/systemctl daemon-reload
 
 # Allow reloading nginx (safe operation)
 nanoscale ALL=(root) NOPASSWD: /usr/sbin/service nginx reload
@@ -230,6 +230,9 @@ nanoscale ALL=(root) NOPASSWD: /usr/sbin/useradd, /usr/sbin/userdel
 
 # Allow ownership updates for deployed app directories
 nanoscale ALL=(root) NOPASSWD: /usr/bin/chown
+
+# Allow installing generated systemd unit files
+nanoscale ALL=(root) NOPASSWD: /usr/bin/mv
 
 # Allow certbot (Risk: High, but necessary for SSL)
 nanoscale ALL=(root) NOPASSWD: /usr/bin/certbot --nginx *
