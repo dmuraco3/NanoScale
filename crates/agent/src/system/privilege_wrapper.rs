@@ -144,6 +144,8 @@ impl PrivilegeWrapper {
         let destination_allowed = (destination.starts_with("/etc/systemd/system/nanoscale-")
             && (destination.ends_with(".service") || destination.ends_with(".socket")))
             || (destination.starts_with("/etc/nginx/sites-available/nanoscale-")
+                && destination.ends_with(".conf"))
+            || (destination.starts_with("/etc/nginx/sites-enabled/nanoscale-")
                 && destination.ends_with(".conf"));
 
         if source_allowed && destination_allowed {
