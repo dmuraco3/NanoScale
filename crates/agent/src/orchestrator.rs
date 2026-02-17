@@ -203,6 +203,7 @@ pub async fn run() -> Result<()> {
         .route("/api/servers", get(list_servers))
         .route("/api/projects", get(list_projects).post(create_project))
         .route("/api/projects/{id}", get(get_project))
+        .route("/api/projects/:id", get(get_project))
         .route("/api/cluster/generate-token", post(generate_cluster_token))
         .route("/api/cluster/join", post(join_cluster))
         .nest("/internal", internal_router)
