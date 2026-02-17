@@ -201,7 +201,20 @@ impl BuildSystem {
     ) -> Result<()> {
         Self::ensure_project_system_user(project_id, privilege_wrapper)?;
 
-        let owner = format!("nanoscale-{project_id}:nanoscale-{project_id}");
+        let username = format!("nanoscale-{project_id}");
+        let primary_group = Command::new("/usr/bin/id")
+            .arg("-gn")
+            .arg(&username)
+            .output()
+            .map_err(|error| anyhow::anyhow!("failed to resolve primary group: {error}"))?;
+
+        if !primary_group.status.success() {
+            let stderr = String::from_utf8_lossy(&primary_group.stderr);
+            bail!("failed to resolve primary group for {username}: {stderr}");
+        }
+
+        let group = String::from_utf8_lossy(&primary_group.stdout).trim().to_string();
+        let owner = format!("{username}:{group}");
         let destination = destination_dir
             .to_str()
             .ok_or_else(|| anyhow::anyhow!("invalid destination path"))?;
@@ -229,14 +242,7 @@ impl BuildSystem {
 
         privilege_wrapper.run(
             "/usr/sbin/useradd",
-            &[
-                "--system",
-                "--user-group",
-                "--no-create-home",
-                "--shell",
-                "/usr/sbin/nologin",
-                &username,
-            ],
+            &["-r", "-s", "/bin/false", &username],
         )?;
 
         Ok(())
