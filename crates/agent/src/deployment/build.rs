@@ -199,12 +199,46 @@ impl BuildSystem {
         destination_dir: &Path,
         privilege_wrapper: &PrivilegeWrapper,
     ) -> Result<()> {
+        Self::ensure_project_system_user(project_id, privilege_wrapper)?;
+
         let owner = format!("nanoscale-{project_id}:nanoscale-{project_id}");
         let destination = destination_dir
             .to_str()
             .ok_or_else(|| anyhow::anyhow!("invalid destination path"))?;
 
         privilege_wrapper.run("/usr/bin/chown", &["-R", &owner, destination])?;
+        Ok(())
+    }
+
+    fn ensure_project_system_user(
+        project_id: &str,
+        privilege_wrapper: &PrivilegeWrapper,
+    ) -> Result<()> {
+        let username = format!("nanoscale-{project_id}");
+
+        let user_exists = Command::new("/usr/bin/id")
+            .arg("-u")
+            .arg(&username)
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false);
+
+        if user_exists {
+            return Ok(());
+        }
+
+        privilege_wrapper.run(
+            "/usr/sbin/useradd",
+            &[
+                "--system",
+                "--user-group",
+                "--no-create-home",
+                "--shell",
+                "/usr/sbin/nologin",
+                &username,
+            ],
+        )?;
+
         Ok(())
     }
 

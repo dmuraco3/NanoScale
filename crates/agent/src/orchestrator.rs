@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::Argon2;
-use axum::extract::State;
+use axum::extract::{Path as AxumPath, State};
 use axum::http::StatusCode;
 use axum::middleware;
 use axum::routing::{get, post};
@@ -23,7 +23,10 @@ use uuid::Uuid;
 use crate::cluster::protocol::{GenerateTokenResponse, JoinClusterRequest, JoinClusterResponse};
 use crate::cluster::signature::verify_cluster_signature;
 use crate::cluster::token_store::TokenStore;
-use crate::db::{DbClient, NewProject, NewServer, NewUser, ServerRecord};
+use crate::db::{
+    DbClient, NewProject, NewServer, NewUser, ProjectDetailsRecord, ProjectListRecord,
+    ServerRecord,
+};
 use crate::deployment::build::{BuildSettings, BuildSystem};
 use crate::deployment::git::Git;
 use crate::deployment::inactivity_monitor::{InactivityMonitor, MonitoredProject};
@@ -87,6 +90,7 @@ struct CreateProjectRequest {
     branch: String,
     build_command: String,
     install_command: String,
+    run_command: String,
     output_directory: String,
     env_vars: Vec<ProjectEnvVar>,
 }
@@ -94,6 +98,33 @@ struct CreateProjectRequest {
 #[derive(Debug, Serialize)]
 struct CreateProjectResponse {
     id: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ProjectListItem {
+    id: String,
+    name: String,
+    repo_url: String,
+    branch: String,
+    run_command: String,
+    status: String,
+    created_at: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ProjectDetailsResponse {
+    id: String,
+    server_id: String,
+    server_name: Option<String>,
+    name: String,
+    repo_url: String,
+    branch: String,
+    install_command: String,
+    build_command: String,
+    run_command: String,
+    status: String,
+    port: i64,
+    created_at: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -104,6 +135,7 @@ struct WorkerCreateProjectRequest {
     branch: String,
     build_command: String,
     install_command: String,
+    run_command: String,
     output_directory: String,
     port: u16,
     env_vars: Vec<ProjectEnvVar>,
@@ -169,7 +201,8 @@ pub async fn run() -> Result<()> {
         .route("/api/auth/status", post(auth_status))
         .route("/api/auth/session", post(auth_session))
         .route("/api/servers", get(list_servers))
-        .route("/api/projects", post(create_project))
+        .route("/api/projects", get(list_projects).post(create_project))
+        .route("/api/projects/{id}", get(get_project))
         .route("/api/cluster/generate-token", post(generate_cluster_token))
         .route("/api/cluster/join", post(join_cluster))
         .nest("/internal", internal_router)
@@ -255,6 +288,7 @@ async fn internal_projects(
     let branch = payload.branch;
     let build_command = payload.build_command;
     let install_command = payload.install_command;
+    let run_command = payload.run_command;
     let output_directory = payload.output_directory;
     let port = payload.port;
     let _env_var_pairs = payload
@@ -274,6 +308,7 @@ async fn internal_projects(
     let project_id_for_build = project_id.clone();
     let build_command_for_run = build_command.clone();
     let install_command_for_run = install_command.clone();
+    let run_command_for_systemd = run_command.clone();
     let output_directory_for_run = output_directory.clone();
 
     let clone_result = tokio::task::spawn_blocking(move || {
@@ -310,6 +345,7 @@ async fn internal_projects(
             &project_id_for_build,
             &build_output.source_dir,
             &build_output.runtime,
+            &run_command_for_systemd,
             &privilege_wrapper,
         )
         .context("systemd generation failed")?;
@@ -488,6 +524,72 @@ fn map_server_record(server: ServerRecord) -> ServerListItem {
     }
 }
 
+fn map_project_list_record(project: ProjectListRecord) -> ProjectListItem {
+    ProjectListItem {
+        id: project.id,
+        name: project.name,
+        repo_url: project.repo_url,
+        branch: project.branch,
+        run_command: project.start_command,
+        status: "deployed".to_string(),
+        created_at: project.created_at,
+    }
+}
+
+fn map_project_details_record(project: ProjectDetailsRecord) -> ProjectDetailsResponse {
+    ProjectDetailsResponse {
+        id: project.id,
+        server_id: project.server_id,
+        server_name: project.server_name,
+        name: project.name,
+        repo_url: project.repo_url,
+        branch: project.branch,
+        install_command: project.install_command,
+        build_command: project.build_command,
+        run_command: project.start_command,
+        status: "deployed".to_string(),
+        port: project.port,
+        created_at: project.created_at,
+    }
+}
+
+async fn list_projects(
+    State(state): State<OrchestratorState>,
+    session: Session,
+) -> Result<Json<Vec<ProjectListItem>>, StatusCode> {
+    require_authenticated(&session).await?;
+
+    let projects = state
+        .db
+        .list_projects()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(
+        projects
+            .into_iter()
+            .map(map_project_list_record)
+            .collect(),
+    ))
+}
+
+async fn get_project(
+    State(state): State<OrchestratorState>,
+    session: Session,
+    AxumPath(project_id): AxumPath<String>,
+) -> Result<Json<ProjectDetailsResponse>, StatusCode> {
+    require_authenticated(&session).await?;
+
+    let project = state
+        .db
+        .get_project_by_id(&project_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    Ok(Json(map_project_details_record(project)))
+}
+
 async fn create_project(
     State(state): State<OrchestratorState>,
     session: Session,
@@ -497,10 +599,15 @@ async fn create_project(
         .await
         .map_err(|status| (status, "Authentication required".to_string()))?;
 
-    if payload.name.trim().is_empty() || payload.repo_url.trim().is_empty() {
+    if payload.name.trim().is_empty()
+        || payload.repo_url.trim().is_empty()
+        || payload.install_command.trim().is_empty()
+        || payload.build_command.trim().is_empty()
+        || payload.run_command.trim().is_empty()
+    {
         return Err((
             StatusCode::BAD_REQUEST,
-            "Project name and repository URL are required".to_string(),
+            "Project name, repository URL, install/build/run commands are required".to_string(),
         ));
     }
 
@@ -526,7 +633,9 @@ async fn create_project(
         name: payload.name.clone(),
         repo_url: payload.repo_url.clone(),
         branch: payload.branch.clone(),
+        install_command: payload.install_command.clone(),
         build_command: payload.build_command.clone(),
+        start_command: payload.run_command.clone(),
         env_vars: serde_json::to_string(&payload.env_vars).map_err(|error| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -582,6 +691,7 @@ async fn call_worker_create_project(
         branch: payload.branch.clone(),
         build_command: payload.build_command.clone(),
         install_command: payload.install_command.clone(),
+        run_command: payload.run_command.clone(),
         output_directory: payload.output_directory.clone(),
         port: 3000,
         env_vars: payload.env_vars.clone(),

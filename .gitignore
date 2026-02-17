@@ -7,3 +7,6 @@ target/
 
 .DS_Store
 .env
+
+.vscode/
+.playwright-mcp/

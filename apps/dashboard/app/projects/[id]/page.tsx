@@ -3,6 +3,7 @@ import { ArrowLeft, GitBranch, ExternalLink, Clock, Server } from "lucide-react"
 import { AuthGuard } from "@/components/auth-guard";
 import { DashboardLayout } from "@/components/layout";
 import { Card, CardHeader, CardTitle, CardContent, Badge, Button } from "@/components/ui";
+import { fetchProjectById } from "@/lib/projects-api";
 
 interface ProjectDetailsPageProps {
   params: Promise<{ id: string }>;
@@ -10,18 +11,15 @@ interface ProjectDetailsPageProps {
 
 async function ProjectDetailsPage(props: ProjectDetailsPageProps) {
   const { id } = await props.params;
+  const project = await fetchProjectById(id);
 
-  // TODO: Fetch actual project data
-  const project = {
-    id,
-    name: "My Project",
-    repo_url: "https://github.com/example/repo",
-    branch: "main",
-    status: "deployed",
-    created_at: new Date().toISOString(),
-    last_deployed: new Date().toISOString(),
-    server_name: "Server 1",
-  };
+  if (!project) {
+    return (
+      <DashboardLayout>
+        <p className="text-sm text-[var(--foreground-muted)]">Project not found.</p>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>
@@ -40,7 +38,7 @@ async function ProjectDetailsPage(props: ProjectDetailsPageProps) {
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-semibold text-[var(--foreground)]">{project.name}</h1>
             <Badge variant="success" dot>
-              Deployed
+              {project.status}
             </Badge>
           </div>
           <p className="text-[var(--foreground-secondary)] mt-1 flex items-center gap-2">
@@ -88,7 +86,7 @@ async function ProjectDetailsPage(props: ProjectDetailsPageProps) {
           <CardContent className="mt-0">
             <span className="flex items-center gap-2 text-[var(--foreground)]">
               <Server className="h-4 w-4" />
-              {project.server_name}
+              {project.server_name ?? project.server_id}
             </span>
           </CardContent>
         </Card>
@@ -102,11 +100,20 @@ async function ProjectDetailsPage(props: ProjectDetailsPageProps) {
           <CardContent className="mt-0">
             <span className="flex items-center gap-2 text-[var(--foreground)]">
               <Clock className="h-4 w-4" />
-              {new Date(project.last_deployed).toLocaleDateString()}
+              {new Date(project.created_at).toLocaleDateString()}
             </span>
           </CardContent>
         </Card>
       </div>
+
+      <Card className="mb-8">
+        <CardHeader>
+          <CardTitle>Run Command</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <code className="text-sm text-[var(--foreground-secondary)]">{project.run_command}</code>
+        </CardContent>
+      </Card>
 
       {/* Deployment history */}
       <Card>

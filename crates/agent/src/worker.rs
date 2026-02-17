@@ -44,6 +44,7 @@ struct WorkerCreateProjectRequest {
     branch: String,
     build_command: String,
     install_command: String,
+    run_command: String,
     output_directory: String,
     port: u16,
     env_vars: Vec<WorkerProjectEnvVar>,
@@ -158,6 +159,7 @@ async fn internal_projects(
     let branch = payload.branch;
     let build_command = payload.build_command;
     let install_command = payload.install_command;
+    let run_command = payload.run_command;
     let output_directory = payload.output_directory;
     let port = payload.port;
     let _env_var_pairs = payload
@@ -177,6 +179,7 @@ async fn internal_projects(
     let project_id_for_build = project_id.clone();
     let build_command_for_run = build_command.clone();
     let install_command_for_run = install_command.clone();
+    let run_command_for_systemd = run_command.clone();
     let output_directory_for_run = output_directory.clone();
 
     let clone_result = tokio::task::spawn_blocking(move || {
@@ -213,6 +216,7 @@ async fn internal_projects(
             &project_id_for_build,
             &build_output.source_dir,
             &build_output.runtime,
+            &run_command_for_systemd,
             &privilege_wrapper,
         )
         .context("systemd generation failed")?;

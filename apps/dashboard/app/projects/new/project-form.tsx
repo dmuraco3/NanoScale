@@ -20,6 +20,7 @@ interface AppPreset {
   label: string;
   buildCommand: string;
   installCommand: string;
+  runCommand: string;
   outputDirectory: string;
 }
 
@@ -29,6 +30,7 @@ const APP_PRESETS: AppPreset[] = [
     label: "Next.js",
     buildCommand: "bun run build",
     installCommand: "bun install --frozen-lockfile",
+    runCommand: "bun run start",
     outputDirectory: ".next/standalone",
   },
 ];
@@ -43,6 +45,7 @@ export default function ProjectForm(props: ProjectFormProps) {
   const [preset, setPreset] = useState<AppPresetKey>(defaultPreset.key);
   const [buildCommand, setBuildCommand] = useState(defaultPreset.buildCommand);
   const [installCommand, setInstallCommand] = useState(defaultPreset.installCommand);
+  const [runCommand, setRunCommand] = useState(defaultPreset.runCommand);
   const [outputDirectory, setOutputDirectory] = useState(defaultPreset.outputDirectory);
   const [serverId, setServerId] = useState(props.servers[0]?.id ?? "");
   const [envVars, setEnvVars] = useState<ProjectEnvVar[]>([{ key: "", value: "" }]);
@@ -58,6 +61,7 @@ export default function ProjectForm(props: ProjectFormProps) {
 
     setBuildCommand(selectedPreset.buildCommand);
     setInstallCommand(selectedPreset.installCommand);
+    setRunCommand(selectedPreset.runCommand);
     setOutputDirectory(selectedPreset.outputDirectory);
   }
 
@@ -89,6 +93,7 @@ export default function ProjectForm(props: ProjectFormProps) {
         branch,
         build_command: buildCommand,
         install_command: installCommand,
+        run_command: runCommand,
         output_directory: outputDirectory,
         env_vars: filteredEnvVars,
       });
@@ -100,6 +105,7 @@ export default function ProjectForm(props: ProjectFormProps) {
           message: "Failed to create project",
           description: result.message,
         });
+        console.error(new Error(result.message, {cause: 'createProject'}))
         return;
       }
 
@@ -111,6 +117,7 @@ export default function ProjectForm(props: ProjectFormProps) {
       window.location.assign(`/projects/${result.data.id}`);
     } catch (error) {
       setSubmitting(false);
+      console.error(error)
       addToast({
         type: "error",
         message: "Failed to create project",
@@ -194,7 +201,7 @@ export default function ProjectForm(props: ProjectFormProps) {
                 id="install-command"
                 value={installCommand}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInstallCommand(e.target.value)}
-                placeholder="npm install"
+                placeholder="bun install --frozen-lockfile"
                 required
               />
 
@@ -203,7 +210,16 @@ export default function ProjectForm(props: ProjectFormProps) {
                 id="build-command"
                 value={buildCommand}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBuildCommand(e.target.value)}
-                placeholder="npm run build"
+                placeholder="bun run build"
+                required
+              />
+
+              <Input
+                label="Run Command"
+                id="run-command"
+                value={runCommand}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRunCommand(e.target.value)}
+                placeholder="bun run start"
                 required
               />
 

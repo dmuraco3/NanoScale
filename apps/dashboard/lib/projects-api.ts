@@ -12,7 +12,23 @@ export interface ProjectListItem {
   name: string;
   repo_url: string;
   branch: string;
+  run_command: string;
   status: string;
+  created_at: string;
+}
+
+export interface ProjectDetailsItem {
+  id: string;
+  server_id: string;
+  server_name: string | null;
+  name: string;
+  repo_url: string;
+  branch: string;
+  install_command: string;
+  build_command: string;
+  run_command: string;
+  status: string;
+  port: number;
   created_at: string;
 }
 
@@ -23,6 +39,7 @@ export interface CreateProjectPayload {
   branch: string;
   build_command: string;
   install_command: string;
+  run_command: string;
   output_directory: string;
   env_vars: ProjectEnvVar[];
 }
@@ -53,6 +70,27 @@ export async function fetchProjects(): Promise<ProjectListItem[]> {
     return (await response.json()) as ProjectListItem[];
   } catch {
     return [];
+  }
+}
+
+export async function fetchProjectById(projectId: string): Promise<ProjectDetailsItem | null> {
+  const requestHeaders = await headers();
+  const cookie = requestHeaders.get("cookie") ?? "";
+  const internalApiUrl = process.env.NANOSCALE_INTERNAL_API_URL ?? "http://127.0.0.1:4000";
+
+  try {
+    const response = await fetch(`${internalApiUrl}/api/projects/${projectId}`, {
+      headers: { cookie },
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return (await response.json()) as ProjectDetailsItem;
+  } catch {
+    return null;
   }
 }
 

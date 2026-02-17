@@ -63,6 +63,10 @@ async function ProjectsPage() {
                   {project.branch}
                 </div>
 
+                <p className="mt-2 text-xs text-[var(--foreground-muted)]">
+                  Run: {project.run_command}
+                </p>
+
                 <div className="mt-4 pt-4 border-t border-[var(--border)] flex items-center justify-between">
                   <a
                     href={project.repo_url}

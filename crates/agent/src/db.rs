@@ -20,7 +20,9 @@ pub struct NewProject {
     pub name: String,
     pub repo_url: String,
     pub branch: String,
+    pub install_command: String,
     pub build_command: String,
+    pub start_command: String,
     pub env_vars: String,
     pub port: i64,
 }
@@ -51,6 +53,31 @@ pub struct NewUser {
 pub struct UserRecord {
     pub id: String,
     pub password_hash: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProjectListRecord {
+    pub id: String,
+    pub name: String,
+    pub repo_url: String,
+    pub branch: String,
+    pub start_command: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProjectDetailsRecord {
+    pub id: String,
+    pub server_id: String,
+    pub name: String,
+    pub repo_url: String,
+    pub branch: String,
+    pub install_command: String,
+    pub build_command: String,
+    pub start_command: String,
+    pub port: i64,
+    pub created_at: String,
+    pub server_name: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -223,14 +250,16 @@ impl DbClient {
 
     pub async fn insert_project(&self, project: &NewProject) -> Result<()> {
         sqlx::query(
-            "INSERT INTO projects (id, server_id, name, repo_url, branch, build_command, env_vars, port) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO projects (id, server_id, name, repo_url, branch, install_command, build_command, start_command, env_vars, port) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         )
         .bind(&project.id)
         .bind(&project.server_id)
         .bind(&project.name)
         .bind(&project.repo_url)
         .bind(&project.branch)
+        .bind(&project.install_command)
         .bind(&project.build_command)
+        .bind(&project.start_command)
         .bind(&project.env_vars)
         .bind(project.port)
         .execute(&self.pool)
@@ -246,6 +275,82 @@ impl DbClient {
             .await?;
 
         Ok(())
+    }
+
+    pub async fn list_projects(&self) -> Result<Vec<ProjectListRecord>> {
+        let rows = sqlx::query_as::<_, (String, String, String, String, String, String)>(
+            "SELECT id, name, repo_url, branch, start_command, created_at FROM projects ORDER BY created_at DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let projects = rows
+            .into_iter()
+            .map(
+                |(id, name, repo_url, branch, start_command, created_at)| ProjectListRecord {
+                    id,
+                    name,
+                    repo_url,
+                    branch,
+                    start_command,
+                    created_at,
+                },
+            )
+            .collect();
+
+        Ok(projects)
+    }
+
+    pub async fn get_project_by_id(&self, project_id: &str) -> Result<Option<ProjectDetailsRecord>> {
+        let row = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                String,
+                String,
+                String,
+                String,
+                String,
+                String,
+                i64,
+                String,
+                Option<String>,
+            ),
+        >(
+            "SELECT p.id, p.server_id, p.name, p.repo_url, p.branch, p.install_command, p.build_command, p.start_command, p.port, p.created_at, s.name FROM projects p LEFT JOIN servers s ON s.id = p.server_id WHERE p.id = ?1",
+        )
+        .bind(project_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(
+            |(
+                id,
+                server_id,
+                name,
+                repo_url,
+                branch,
+                install_command,
+                build_command,
+                start_command,
+                port,
+                created_at,
+                server_name,
+            )| ProjectDetailsRecord {
+                id,
+                server_id,
+                name,
+                repo_url,
+                branch,
+                install_command,
+                build_command,
+                start_command,
+                port,
+                created_at,
+                server_name,
+            },
+        ))
     }
 
     pub fn pool(&self) -> Pool<Sqlite> {

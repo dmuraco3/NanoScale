@@ -46,7 +46,11 @@ impl PrivilegeWrapper {
             .output()?;
 
         if !output.status.success() {
-            return Err(anyhow!("privileged command failed: {binary_path} {args:?}"));
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            return Err(anyhow!(
+                "privileged command failed: {binary_path} {args:?}; stdout: {stdout}; stderr: {stderr}"
+            ));
         }
 
         Ok(output)
