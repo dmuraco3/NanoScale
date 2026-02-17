@@ -1,12 +1,29 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { Server, Plus, MoreHorizontal, Copy, Check, Loader2 } from "lucide-react";
 
 import {
   type ServerListItem,
   fetchServersClient,
   generateJoinToken,
 } from "@/lib/servers-api";
+import { DashboardLayout } from "@/components/layout";
+import {
+  Button,
+  Badge,
+  Modal,
+  ModalFooter,
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+  TableEmpty,
+  Dropdown,
+  DropdownItem,
+} from "@/components/ui";
 
 interface ServersPageClientProps {
   initialServers: ServerListItem[];
@@ -18,7 +35,7 @@ export default function ServersPageClient(props: ServersPageClientProps) {
   const [joinToken, setJoinToken] = useState("");
   const [isGeneratingToken, setGeneratingToken] = useState(false);
   const [isPolling, setPolling] = useState(false);
-  const [copyLabel, setCopyLabel] = useState("Copy");
+  const [copyLabel, setCopyLabel] = useState<"copy" | "copied">("copy");
   const pollingActiveRef = useRef(false);
 
   const orchestratorUrl =
@@ -28,7 +45,7 @@ export default function ServersPageClient(props: ServersPageClientProps) {
 
   async function openModal() {
     setJoinToken("");
-    setCopyLabel("Copy");
+    setCopyLabel("copy");
     setModalOpen(true);
   }
 
@@ -38,7 +55,7 @@ export default function ServersPageClient(props: ServersPageClientProps) {
     setModalOpen(false);
     setJoinToken("");
     setGeneratingToken(false);
-    setCopyLabel("Copy");
+    setCopyLabel("copy");
   }
 
   async function handleGenerateToken() {
@@ -84,135 +101,181 @@ export default function ServersPageClient(props: ServersPageClientProps) {
 
     const command = `curl -sL nanoscale.sh | bash -s -- --join ${joinToken} --orchestrator ${orchestratorUrl}`;
     await navigator.clipboard.writeText(command);
-    setCopyLabel("Copied");
+    setCopyLabel("copied");
+    setTimeout(() => setCopyLabel("copy"), 2000);
   }
 
   return (
-    <main className="min-h-screen bg-zinc-950 p-6 text-zinc-100">
-      <section className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Servers</h1>
-        <button
-          type="button"
-          className="rounded bg-zinc-100 px-3 py-2 text-sm text-zinc-900"
-          onClick={openModal}
-        >
+    <DashboardLayout>
+      {/* Page header */}
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-2xl font-semibold text-[var(--foreground)]">Servers</h1>
+          <p className="text-[var(--foreground-secondary)] mt-1">
+            Manage your infrastructure and connected servers.
+          </p>
+        </div>
+        <Button leftIcon={<Plus className="h-4 w-4" />} onClick={openModal}>
           Add Server
-        </button>
-      </section>
+        </Button>
+      </div>
 
-      <section className="mt-6 overflow-hidden rounded-lg border border-zinc-800">
-        <table className="min-w-full divide-y divide-zinc-800">
-          <thead className="bg-zinc-900">
-            <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase text-zinc-400">Name</th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase text-zinc-400">IP Address</th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase text-zinc-400">Status</th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase text-zinc-400">RAM Usage</th>
-              <th className="px-4 py-3 text-right text-xs font-medium uppercase text-zinc-400">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-800 bg-zinc-950">
-            {servers.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-sm text-zinc-400">
-                  No servers connected yet.
-                </td>
-              </tr>
-            ) : (
-              servers.map((server) => (
-                <tr key={server.id}>
-                  <td className="px-4 py-3 text-sm text-zinc-200">{server.name}</td>
-                  <td className="px-4 py-3 text-sm text-zinc-300">{server.ip_address}</td>
-                  <td className="px-4 py-3 text-sm">
-                    <span
-                      className={
-                        server.status.toLowerCase() === "online"
-                          ? "text-emerald-400"
-                          : "text-red-400"
-                      }
-                    >
-                      {server.status.toLowerCase() === "online" ? "Online" : "Offline"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-zinc-300">
-                    <div className="h-2 w-full rounded bg-zinc-800">
+      {/* Servers table */}
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Name</TableHead>
+            <TableHead>IP Address</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>RAM Usage</TableHead>
+            <TableHead className="text-right">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {servers.length === 0 ? (
+            <TableEmpty
+              colSpan={5}
+              message="No servers connected yet"
+              icon={<Server className="h-8 w-8" />}
+            />
+          ) : (
+            servers.map((server) => (
+              <TableRow key={server.id}>
+                <TableCell>
+                  <div className="flex items-center gap-3">
+                    <div className="h-8 w-8 rounded-md bg-[var(--background-tertiary)] flex items-center justify-center">
+                      <Server className="h-4 w-4 text-[var(--foreground-secondary)]" />
+                    </div>
+                    <span className="font-medium">{server.name}</span>
+                  </div>
+                </TableCell>
+                <TableCell className="text-[var(--foreground-secondary)]">
+                  {server.ip_address}
+                </TableCell>
+                <TableCell>
+                  <Badge
+                    variant={server.status.toLowerCase() === "online" ? "success" : "error"}
+                    dot
+                  >
+                    {server.status.toLowerCase() === "online" ? "Online" : "Offline"}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-3">
+                    <div className="h-2 w-24 rounded-full bg-[var(--background-tertiary)]">
                       <div
-                        className="h-2 rounded bg-zinc-300"
+                        className="h-2 rounded-full bg-[var(--accent)] transition-all"
                         style={{ width: `${server.ram_usage_percent}%` }}
                       />
                     </div>
-                  </td>
-                  <td className="px-4 py-3 text-right text-sm text-zinc-300">
-                    <details className="inline-block text-left">
-                      <summary className="cursor-pointer list-none rounded px-2 py-1 text-zinc-200">⋯</summary>
-                      <div className="mt-1 w-24 rounded border border-zinc-700 bg-zinc-900 p-1">
-                        <button type="button" className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-zinc-800">
-                          Edit
-                        </button>
-                        <button type="button" className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-zinc-800">
-                          Delete
-                        </button>
-                      </div>
-                    </details>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </section>
-
-      {isModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-          <section className="w-full max-w-2xl rounded-lg border border-zinc-700 bg-zinc-900 p-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-zinc-100">Add Server</h2>
-              <button type="button" className="text-zinc-300" onClick={closeModal}>
-                Close
-              </button>
-            </div>
-
-            <div className="mt-4 space-y-4">
-              <div>
-                <p className="text-sm text-zinc-300">Step 1</p>
-                <button
-                  type="button"
-                  className="mt-2 rounded bg-zinc-100 px-3 py-2 text-sm text-zinc-900 disabled:opacity-70"
-                  onClick={handleGenerateToken}
-                  disabled={isGeneratingToken || isPolling}
-                >
-                  {isGeneratingToken ? "Generating..." : "Generate Join Token"}
-                </button>
-              </div>
-
-              {joinToken ? (
-                <div>
-                  <p className="text-sm text-zinc-300">Step 2</p>
-                  <div className="mt-2 rounded border border-zinc-700 bg-zinc-950 p-3">
-                    <code className="block break-all text-xs text-zinc-200">
-                      {`curl -sL nanoscale.sh | bash -s -- --join ${joinToken} --orchestrator ${orchestratorUrl}`}
-                    </code>
+                    <span className="text-sm text-[var(--foreground-secondary)]">
+                      {server.ram_usage_percent}%
+                    </span>
                   </div>
-                  <button
-                    type="button"
-                    className="mt-2 rounded border border-zinc-700 px-3 py-2 text-sm text-zinc-200"
-                    onClick={handleCopyCommand}
+                </TableCell>
+                <TableCell className="text-right">
+                  <Dropdown
+                    trigger={
+                      <button className="p-2 rounded-md hover:bg-[var(--background-tertiary)] transition-colors">
+                        <MoreHorizontal className="h-4 w-4 text-[var(--foreground-secondary)]" />
+                      </button>
+                    }
                   >
-                    {copyLabel}
-                  </button>
-                </div>
-              ) : null}
+                    <DropdownItem>Edit</DropdownItem>
+                    <DropdownItem destructive>Delete</DropdownItem>
+                  </Dropdown>
+                </TableCell>
+              </TableRow>
+            ))
+          )}
+        </TableBody>
+      </Table>
 
-              {isPolling ? (
-                <div>
-                  <p className="text-sm text-zinc-300">Step 3</p>
-                  <p className="mt-2 text-sm text-zinc-200">Waiting for connection...</p>
-                </div>
-              ) : null}
+      {/* Add Server Modal */}
+      <Modal
+        isOpen={isModalOpen}
+        onClose={closeModal}
+        title="Add Server"
+        description="Connect a new server to your NanoScale cluster"
+        size="lg"
+      >
+        <div className="space-y-6">
+          {/* Step 1 */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--accent)] text-xs font-medium text-white">
+                1
+              </div>
+              <span className="text-sm font-medium text-[var(--foreground)]">Generate Join Token</span>
             </div>
-          </section>
+            <Button
+              variant="secondary"
+              onClick={handleGenerateToken}
+              disabled={isGeneratingToken || isPolling}
+              isLoading={isGeneratingToken && !joinToken}
+            >
+              {joinToken ? "Token Generated" : "Generate Token"}
+            </Button>
+          </div>
+
+          {/* Step 2 */}
+          {joinToken && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--accent)] text-xs font-medium text-white">
+                  2
+                </div>
+                <span className="text-sm font-medium text-[var(--foreground)]">
+                  Run this command on your server
+                </span>
+              </div>
+              <div className="relative">
+                <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4 font-mono text-sm overflow-x-auto">
+                  <code className="text-[var(--foreground-secondary)] break-all">
+                    curl -sL nanoscale.sh | bash -s -- --join {joinToken} --orchestrator {orchestratorUrl}
+                  </code>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="absolute top-2 right-2"
+                  onClick={handleCopyCommand}
+                >
+                  {copyLabel === "copied" ? (
+                    <Check className="h-4 w-4 text-[var(--success)]" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 3 */}
+          {isPolling && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--accent)] text-xs font-medium text-white">
+                  3
+                </div>
+                <span className="text-sm font-medium text-[var(--foreground)]">
+                  Waiting for connection
+                </span>
+              </div>
+              <div className="flex items-center gap-3 text-sm text-[var(--foreground-secondary)]">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Listening for new server connections...</span>
+              </div>
+            </div>
+          )}
         </div>
-      ) : null}
-    </main>
+
+        <ModalFooter>
+          <Button variant="outline" onClick={closeModal}>
+            Cancel
+          </Button>
+        </ModalFooter>
+      </Modal>
+    </DashboardLayout>
   );
 }

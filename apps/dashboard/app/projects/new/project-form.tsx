@@ -1,9 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { Rocket, Plus, Trash2 } from "lucide-react";
 
 import { type ServerListItem } from "@/lib/servers-api";
 import { createProject, type ProjectEnvVar } from "@/lib/projects-api";
+import { DashboardLayout } from "@/components/layout";
+import { Button, Input, Select, Card, CardHeader, CardTitle, CardContent } from "@/components/ui";
+import { useToast } from "@/components/toast";
 
 interface ProjectFormProps {
   servers: ServerListItem[];
@@ -31,6 +35,7 @@ const APP_PRESETS: AppPreset[] = [
 
 export default function ProjectForm(props: ProjectFormProps) {
   const defaultPreset = APP_PRESETS[0];
+  const { addToast } = useToast();
 
   const [repoUrl, setRepoUrl] = useState("");
   const [branch, setBranch] = useState("main");
@@ -42,7 +47,6 @@ export default function ProjectForm(props: ProjectFormProps) {
   const [serverId, setServerId] = useState(props.servers[0]?.id ?? "");
   const [envVars, setEnvVars] = useState<ProjectEnvVar[]>([{ key: "", value: "" }]);
   const [isSubmitting, setSubmitting] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
 
   function handlePresetChange(nextPresetKey: AppPresetKey) {
     setPreset(nextPresetKey);
@@ -72,7 +76,6 @@ export default function ProjectForm(props: ProjectFormProps) {
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
-    setErrorMessage("");
 
     try {
       const filteredEnvVars = envVars.filter(
@@ -92,83 +95,91 @@ export default function ProjectForm(props: ProjectFormProps) {
 
       if (!result.ok) {
         setSubmitting(false);
-        setErrorMessage(result.message);
+        addToast({
+          type: "error",
+          message: "Failed to create project",
+          description: result.message,
+        });
         return;
       }
 
+      addToast({
+        type: "success",
+        message: "Project created",
+        description: "Redirecting to project page...",
+      });
       window.location.assign(`/projects/${result.data.id}`);
     } catch (error) {
       setSubmitting(false);
-      if (error instanceof Error && error.message.length > 0) {
-        setErrorMessage(error.message);
-      } else {
-        setErrorMessage("Unable to create project.");
-      }
+      addToast({
+        type: "error",
+        message: "Failed to create project",
+        description: error instanceof Error ? error.message : "Unable to create project.",
+      });
     }
   }
 
   return (
-    <main className="min-h-screen bg-zinc-950 p-6 text-zinc-100">
-      <h1 className="text-2xl font-semibold">New Project</h1>
+    <DashboardLayout>
+      {/* Page header */}
+      <div className="mb-8">
+        <h1 className="text-2xl font-semibold text-[var(--foreground)]">New Project</h1>
+        <p className="text-[var(--foreground-secondary)] mt-1">
+          Deploy a new application from a Git repository.
+        </p>
+      </div>
 
-      <form className="mt-6 space-y-6" onSubmit={handleSubmit}>
-        <section className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
-          <h2 className="text-lg font-medium">Source</h2>
-          <div className="mt-4 space-y-3">
-            <div>
-              <label className="mb-1 block text-sm text-zinc-300" htmlFor="repo-url">
-                repo_url
-              </label>
-              <input
+      <form className="space-y-6 max-w-3xl" onSubmit={handleSubmit}>
+        {/* Source section */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Source</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <Input
+                label="Repository URL"
                 id="repo-url"
-                className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
                 value={repoUrl}
-                onChange={(event) => setRepoUrl(event.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRepoUrl(e.target.value)}
                 placeholder="https://github.com/owner/repo"
+                hint="The Git repository URL to clone"
                 required
               />
-            </div>
 
-            <div>
-              <label className="mb-1 block text-sm text-zinc-300" htmlFor="branch">
-                branch
-              </label>
-              <input
+              <Input
+                label="Branch"
                 id="branch"
-                className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
                 value={branch}
-                onChange={(event) => setBranch(event.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBranch(e.target.value)}
+                placeholder="main"
                 required
               />
             </div>
-          </div>
-        </section>
+          </CardContent>
+        </Card>
 
-        <section className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
-          <h2 className="text-lg font-medium">Configuration</h2>
-          <div className="mt-4 space-y-3">
-            <div>
-              <label className="mb-1 block text-sm text-zinc-300" htmlFor="name">
-                name
-              </label>
-              <input
+        {/* Configuration section */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Configuration</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <Input
+                label="Project Name"
                 id="name"
-                className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
                 value={name}
-                onChange={(event) => setName(event.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
+                placeholder="my-awesome-project"
                 required
               />
-            </div>
 
-            <div>
-              <label className="mb-1 block text-sm text-zinc-300" htmlFor="app-preset">
-                application_preset
-              </label>
-              <select
+              <Select
+                label="Framework Preset"
                 id="app-preset"
-                className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
                 value={preset}
-                onChange={(event) => handlePresetChange(event.target.value as AppPresetKey)}
+                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => handlePresetChange(e.target.value as AppPresetKey)}
                 required
               >
                 {APP_PRESETS.map((item) => (
@@ -176,57 +187,40 @@ export default function ProjectForm(props: ProjectFormProps) {
                     {item.label}
                   </option>
                 ))}
-              </select>
-            </div>
+              </Select>
 
-            <div>
-              <label className="mb-1 block text-sm text-zinc-300" htmlFor="install-command">
-                install_command
-              </label>
-              <input
+              <Input
+                label="Install Command"
                 id="install-command"
-                className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
                 value={installCommand}
-                onChange={(event) => setInstallCommand(event.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInstallCommand(e.target.value)}
+                placeholder="npm install"
                 required
               />
-            </div>
 
-            <div>
-              <label className="mb-1 block text-sm text-zinc-300" htmlFor="build-command">
-                build_command
-              </label>
-              <input
+              <Input
+                label="Build Command"
                 id="build-command"
-                className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
                 value={buildCommand}
-                onChange={(event) => setBuildCommand(event.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBuildCommand(e.target.value)}
+                placeholder="npm run build"
                 required
               />
-            </div>
 
-            <div>
-              <label className="mb-1 block text-sm text-zinc-300" htmlFor="output-directory">
-                output_directory
-              </label>
-              <input
+              <Input
+                label="Output Directory"
                 id="output-directory"
-                className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
                 value={outputDirectory}
-                onChange={(event) => setOutputDirectory(event.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setOutputDirectory(e.target.value)}
+                placeholder=".next/standalone"
                 required
               />
-            </div>
 
-            <div>
-              <label className="mb-1 block text-sm text-zinc-300" htmlFor="server-id">
-                server_id
-              </label>
-              <select
+              <Select
+                label="Deploy to Server"
                 id="server-id"
-                className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
                 value={serverId}
-                onChange={(event) => setServerId(event.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setServerId(e.target.value)}
                 required
               >
                 {props.servers.map((server) => (
@@ -234,62 +228,82 @@ export default function ProjectForm(props: ProjectFormProps) {
                     {server.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
-          </div>
-        </section>
+          </CardContent>
+        </Card>
 
-        <section className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
-          <h2 className="text-lg font-medium">Environment</h2>
-          <div className="mt-4 space-y-2">
-            {envVars.map((row, index) => (
-              <div key={`${index}-${row.key}`} className="grid grid-cols-12 gap-2">
-                <input
-                  className="col-span-5 rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
-                  placeholder="KEY"
-                  value={row.key}
-                  onChange={(event) =>
-                    updateEnvVar(index, { ...row, key: event.target.value })
-                  }
-                />
-                <input
-                  className="col-span-5 rounded border border-zinc-700 bg-zinc-950 px-3 py-2"
-                  placeholder="VALUE"
-                  value={row.value}
-                  onChange={(event) =>
-                    updateEnvVar(index, { ...row, value: event.target.value })
-                  }
-                />
-                <button
-                  type="button"
-                  className="col-span-2 rounded border border-zinc-700 px-2 py-2 text-sm"
-                  onClick={() => removeEnvVarRow(index)}
-                  disabled={envVars.length === 1}
-                >
-                  Remove
-                </button>
-              </div>
-            ))}
-            <button
+        {/* Environment Variables section */}
+        <Card>
+          <CardHeader className="flex-row items-center justify-between">
+            <CardTitle>Environment Variables</CardTitle>
+            <Button
               type="button"
-              className="rounded border border-zinc-700 px-3 py-2 text-sm"
+              variant="ghost"
+              size="sm"
               onClick={addEnvVarRow}
+              leftIcon={<Plus className="h-4 w-4" />}
             >
-              Add Row
-            </button>
-          </div>
-        </section>
+              Add Variable
+            </Button>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {envVars.map((row, index) => (
+                <div key={`${index}-${row.key}`} className="flex gap-3">
+                  <Input
+                    className="flex-1"
+                    placeholder="KEY"
+                    value={row.key}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      updateEnvVar(index, { ...row, key: e.target.value })
+                    }
+                  />
+                  <Input
+                    className="flex-1"
+                    placeholder="VALUE"
+                    value={row.value}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      updateEnvVar(index, { ...row, value: e.target.value })
+                    }
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="md"
+                    onClick={() => removeEnvVarRow(index)}
+                    disabled={envVars.length === 1}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+              {envVars.length === 0 && (
+                <p className="text-sm text-[var(--foreground-muted)] text-center py-4">
+                  No environment variables configured
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
 
-        <button
-          type="submit"
-          disabled={isSubmitting || props.servers.length === 0}
-          className="rounded bg-zinc-100 px-4 py-2 text-zinc-900 disabled:opacity-60"
-        >
-          {isSubmitting ? "Creating..." : "Create Project"}
-        </button>
-
-        {errorMessage ? <p className="text-sm text-red-300">{errorMessage}</p> : null}
+        {/* Submit */}
+        <div className="flex items-center gap-4">
+          <Button
+            type="submit"
+            disabled={isSubmitting || props.servers.length === 0}
+            isLoading={isSubmitting}
+            leftIcon={!isSubmitting ? <Rocket className="h-4 w-4" /> : undefined}
+          >
+            Deploy Project
+          </Button>
+          {props.servers.length === 0 && (
+            <p className="text-sm text-[var(--warning)]">
+              You need to add a server before creating a project.
+            </p>
+          )}
+        </div>
       </form>
-    </main>
+    </DashboardLayout>
   );
 }

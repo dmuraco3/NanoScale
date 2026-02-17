@@ -1,121 +1,149 @@
 "use client";
 
 import { useState } from "react";
+import { UserPlus } from "lucide-react";
 
 import { setupAdminAction } from "@/app/setup/actions";
+import { Button, Input, Card, CardContent } from "@/components/ui";
+import { useToast } from "@/components/toast";
 
 export default function SetupForm() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { addToast } = useToast();
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (password !== confirmPassword) {
-      setErrorMessage("Passwords do not match.");
+      addToast({
+        type: "error",
+        message: "Passwords don't match",
+        description: "Please make sure both passwords are the same.",
+      });
       return;
     }
 
     if (password.length < 8) {
-      setErrorMessage("Password must be at least 8 characters.");
+      addToast({
+        type: "error",
+        message: "Password too short",
+        description: "Password must be at least 8 characters long.",
+      });
       return;
     }
 
     setIsSubmitting(true);
-    setErrorMessage("");
 
     try {
       const response = await setupAdminAction(username, password);
 
       if (response.ok) {
+        addToast({
+          type: "success",
+          message: "Account created",
+          description: "Redirecting to dashboard...",
+        });
         window.location.assign("/");
         return;
       }
 
+      let errorMessage = "Unable to create admin account.";
       if (response.status === 400) {
-        setErrorMessage("Username is required and password must be at least 8 characters.");
+        errorMessage = "Username is required and password must be at least 8 characters.";
       } else if (response.status === 409) {
-        setErrorMessage("Setup has already been completed. Please sign in.");
+        errorMessage = "Setup has already been completed. Please sign in.";
       } else if (response.status >= 500) {
-        setErrorMessage("Server error while creating admin account. Check orchestrator logs.");
+        errorMessage = "Server error while creating admin account.";
       } else if (response.status === 0) {
-        setErrorMessage("Cannot reach NanoScale API. Verify local API service on port 4000.");
-      } else {
-        setErrorMessage("Unable to create admin account.");
+        errorMessage = "Cannot reach NanoScale API. Verify the service is running.";
       }
+
+      addToast({
+        type: "error",
+        message: "Setup failed",
+        description: errorMessage,
+      });
     } catch {
-      setErrorMessage("Unable to create admin account.");
+      addToast({
+        type: "error",
+        message: "Setup failed",
+        description: "Unable to create admin account.",
+      });
     } finally {
       setIsSubmitting(false);
     }
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-zinc-950 px-4">
-      <section className="w-full max-w-md rounded-lg border border-zinc-800 bg-zinc-900 p-6">
-        <h1 className="text-xl font-semibold text-zinc-100">Welcome to NanoScale</h1>
-        <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
-          <div>
-            <label className="mb-1 block text-sm text-zinc-300" htmlFor="username">
-              Username
-            </label>
-            <input
-              id="username"
-              className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-100"
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-              required
-            />
+    <main className="min-h-screen flex items-center justify-center bg-[var(--background)] px-4">
+      <div className="w-full max-w-md">
+        {/* Logo and header */}
+        <div className="text-center mb-8">
+          <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--foreground)] mb-4">
+            <span className="text-xl font-bold text-[var(--background)]">N</span>
           </div>
-
-          <div>
-            <label className="mb-1 block text-sm text-zinc-300" htmlFor="password">
-              Password
-            </label>
-            <input
-              id="password"
-              type="password"
-              className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-100"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              minLength={8}
-              required
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm text-zinc-300" htmlFor="confirm-password">
-              Confirm Password
-            </label>
-            <input
-              id="confirm-password"
-              type="password"
-              className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-100"
-              value={confirmPassword}
-              onChange={(event) => setConfirmPassword(event.target.value)}
-              minLength={8}
-              required
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full rounded bg-zinc-100 px-3 py-2 text-zinc-900 disabled:opacity-70"
-          >
-            {isSubmitting ? "Creating..." : "Create Admin Account"}
-          </button>
-        </form>
-
-        {errorMessage ? (
-          <p className="mt-4 text-sm text-red-300" role="alert">
-            {errorMessage}
+          <h1 className="text-2xl font-semibold text-[var(--foreground)]">Welcome to NanoScale</h1>
+          <p className="text-[var(--foreground-secondary)] mt-2">
+            Create your admin account to get started
           </p>
-        ) : null}
-      </section>
+        </div>
+
+        <Card>
+          <CardContent className="mt-0 pt-6">
+            <form className="space-y-4" onSubmit={handleSubmit}>
+              <Input
+                label="Username"
+                id="username"
+                value={username}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setUsername(e.target.value)}
+                placeholder="Choose a username"
+                required
+                autoFocus
+              />
+
+              <Input
+                label="Password"
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
+                placeholder="Choose a password"
+                hint="Must be at least 8 characters"
+                minLength={8}
+                required
+              />
+
+              <Input
+                label="Confirm Password"
+                id="confirm-password"
+                type="password"
+                value={confirmPassword}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfirmPassword(e.target.value)}
+                placeholder="Confirm your password"
+                minLength={8}
+                required
+              />
+
+              <Button
+                type="submit"
+                disabled={isSubmitting}
+                isLoading={isSubmitting}
+                className="w-full"
+                leftIcon={!isSubmitting ? <UserPlus className="h-4 w-4" /> : undefined}
+              >
+                Create Admin Account
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+
+        <p className="text-center text-sm text-[var(--foreground-muted)] mt-6">
+          NanoScale Control Plane
+        </p>
+      </div>
     </main>
   );
 }

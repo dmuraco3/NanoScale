@@ -7,6 +7,15 @@ export interface ProjectEnvVar {
   value: string;
 }
 
+export interface ProjectListItem {
+  id: string;
+  name: string;
+  repo_url: string;
+  branch: string;
+  status: string;
+  created_at: string;
+}
+
 export interface CreateProjectPayload {
   server_id: string;
   name: string;
@@ -25,6 +34,27 @@ export interface CreateProjectResponse {
 export type CreateProjectResult =
   | { ok: true; data: CreateProjectResponse }
   | { ok: false; message: string };
+
+export async function fetchProjects(): Promise<ProjectListItem[]> {
+  const requestHeaders = await headers();
+  const cookie = requestHeaders.get("cookie") ?? "";
+  const internalApiUrl = process.env.NANOSCALE_INTERNAL_API_URL ?? "http://127.0.0.1:4000";
+
+  try {
+    const response = await fetch(`${internalApiUrl}/api/projects`, {
+      headers: { cookie },
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    return (await response.json()) as ProjectListItem[];
+  } catch {
+    return [];
+  }
+}
 
 export async function createProject(
   payload: CreateProjectPayload,
