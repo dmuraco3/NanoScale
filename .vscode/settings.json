@@ -4,5 +4,17 @@
     "cargo clippy": true,
     "bun": true,
     "cargo check": true
-  }
+  },
+  "rust-analyzer.checkOnSave": true,
+  "rust-analyzer.check.overrideCommand": [
+    "cargo",
+    "clippy",
+    "--workspace",
+    "--all-targets",
+    "--all-features",
+    "--message-format=json",
+    "--",
+    "-D",
+    "warnings"
+  ]
 }

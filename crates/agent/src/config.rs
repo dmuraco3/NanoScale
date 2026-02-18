@@ -67,8 +67,7 @@ impl NanoScaleConfig {
 
     pub fn database_path(&self) -> String {
         self.database_path
-            .as_ref()
-            .map(String::as_str)
+            .as_deref()
             .unwrap_or(DEFAULT_DB_PATH)
             .trim()
             .to_string()
@@ -77,8 +76,7 @@ impl NanoScaleConfig {
     pub fn orchestrator_bind_address(&self) -> String {
         self.orchestrator
             .bind_address
-            .as_ref()
-            .map(String::as_str)
+            .as_deref()
             .unwrap_or(DEFAULT_ORCHESTRATOR_BIND_ADDRESS)
             .trim()
             .to_string()
@@ -87,8 +85,7 @@ impl NanoScaleConfig {
     pub fn orchestrator_server_id(&self) -> String {
         self.orchestrator
             .server_id
-            .as_ref()
-            .map(String::as_str)
+            .as_deref()
             .unwrap_or(DEFAULT_ORCHESTRATOR_SERVER_ID)
             .trim()
             .to_string()
@@ -97,8 +94,7 @@ impl NanoScaleConfig {
     pub fn orchestrator_server_name(&self) -> String {
         self.orchestrator
             .server_name
-            .as_ref()
-            .map(String::as_str)
+            .as_deref()
             .unwrap_or(DEFAULT_ORCHESTRATOR_SERVER_NAME)
             .trim()
             .to_string()
@@ -107,8 +103,7 @@ impl NanoScaleConfig {
     pub fn orchestrator_worker_ip(&self) -> String {
         self.orchestrator
             .worker_ip
-            .as_ref()
-            .map(String::as_str)
+            .as_deref()
             .unwrap_or(DEFAULT_ORCHESTRATOR_WORKER_IP)
             .trim()
             .to_string()
@@ -117,18 +112,16 @@ impl NanoScaleConfig {
     pub fn orchestrator_base_domain(&self) -> Option<String> {
         self.orchestrator
             .base_domain
-            .as_ref()
-            .map(String::as_str)
+            .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .map(|value| value.to_string())
+            .map(ToString::to_string)
     }
 
     pub fn worker_orchestrator_url(&self) -> String {
         self.worker
             .orchestrator_url
-            .as_ref()
-            .map(String::as_str)
+            .as_deref()
             .unwrap_or(DEFAULT_WORKER_ORCHESTRATOR_URL)
             .trim()
             .to_string()
@@ -137,8 +130,7 @@ impl NanoScaleConfig {
     pub fn worker_ip(&self) -> String {
         self.worker
             .ip
-            .as_ref()
-            .map(String::as_str)
+            .as_deref()
             .unwrap_or(DEFAULT_WORKER_IP)
             .trim()
             .to_string()
@@ -147,8 +139,7 @@ impl NanoScaleConfig {
     pub fn worker_name(&self) -> String {
         self.worker
             .name
-            .as_ref()
-            .map(String::as_str)
+            .as_deref()
             .unwrap_or(DEFAULT_WORKER_NAME)
             .trim()
             .to_string()
@@ -157,8 +148,7 @@ impl NanoScaleConfig {
     pub fn worker_bind(&self) -> String {
         self.worker
             .bind
-            .as_ref()
-            .map(String::as_str)
+            .as_deref()
             .unwrap_or(DEFAULT_WORKER_BIND)
             .trim()
             .to_string()

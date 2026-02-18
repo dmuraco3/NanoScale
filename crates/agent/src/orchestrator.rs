@@ -161,9 +161,9 @@ pub async fn run() -> Result<()> {
     let orchestrator_worker_ip = config.orchestrator_worker_ip();
     let base_domain = config
         .orchestrator_base_domain()
-        .map(|value| normalize_base_domain_value(&value))
-        .transpose()?
-        .map(|value| value.to_string());
+        .as_deref()
+        .map(normalize_base_domain_value)
+        .transpose()?;
     let local_server_secret = generate_secret_key();
 
     db_client

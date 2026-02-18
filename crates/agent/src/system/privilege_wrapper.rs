@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::path::Path;
 use std::process::{Command, Output};
 
 use anyhow::{anyhow, Result};
@@ -41,7 +42,7 @@ impl PrivilegeWrapper {
             return Err(anyhow!("binary path is not allowed: {binary_path}"));
         }
 
-        self.validate_command_args(binary_path, args)?;
+        Self::validate_command_args(binary_path, args)?;
 
         let output = Command::new(SUDO_BIN)
             .arg("-n")
@@ -60,22 +61,22 @@ impl PrivilegeWrapper {
         Ok(output)
     }
 
-    fn validate_command_args(&self, binary_path: &str, args: &[&str]) -> Result<()> {
+    fn validate_command_args(binary_path: &str, args: &[&str]) -> Result<()> {
         match binary_path {
-            SYSTEMCTL_BIN => self.validate_systemctl_args(args),
-            SERVICE_BIN => self.validate_service_args(args),
-            USERADD_BIN => self.validate_useradd_args(args),
-            USERDEL_BIN => self.validate_userdel_args(args),
-            CERTBOT_BIN => self.validate_certbot_args(args),
-            MV_BIN => self.validate_mv_args(args),
-            RM_BIN => self.validate_rm_args(args),
-            CHOWN_BIN => self.validate_chown_args(args),
-            FALLOCATE_BIN => self.validate_fallocate_args(args),
+            SYSTEMCTL_BIN => Self::validate_systemctl_args(args),
+            SERVICE_BIN => Self::validate_service_args(args),
+            USERADD_BIN => Self::validate_useradd_args(args),
+            USERDEL_BIN => Self::validate_userdel_args(args),
+            CERTBOT_BIN => Self::validate_certbot_args(args),
+            MV_BIN => Self::validate_mv_args(args),
+            RM_BIN => Self::validate_rm_args(args),
+            CHOWN_BIN => Self::validate_chown_args(args),
+            FALLOCATE_BIN => Self::validate_fallocate_args(args),
             _ => Err(anyhow!("unsupported binary path: {binary_path}")),
         }
     }
 
-    fn validate_systemctl_args(&self, args: &[&str]) -> Result<()> {
+    fn validate_systemctl_args(args: &[&str]) -> Result<()> {
         if args == ["daemon-reload"] {
             return Ok(());
         }
@@ -122,7 +123,7 @@ impl PrivilegeWrapper {
         Err(anyhow!("systemctl arguments are not allowed: {args:?}"))
     }
 
-    fn validate_service_args(&self, args: &[&str]) -> Result<()> {
+    fn validate_service_args(args: &[&str]) -> Result<()> {
         if args == ["nginx", "reload"] {
             return Ok(());
         }
@@ -130,7 +131,7 @@ impl PrivilegeWrapper {
         Err(anyhow!("service arguments are not allowed: {args:?}"))
     }
 
-    fn validate_useradd_args(&self, args: &[&str]) -> Result<()> {
+    fn validate_useradd_args(args: &[&str]) -> Result<()> {
         if args.len() == 4
             && args[0] == "-r"
             && args[1] == "-s"
@@ -143,7 +144,7 @@ impl PrivilegeWrapper {
         Err(anyhow!("useradd arguments are not allowed: {args:?}"))
     }
 
-    fn validate_userdel_args(&self, args: &[&str]) -> Result<()> {
+    fn validate_userdel_args(args: &[&str]) -> Result<()> {
         if args.len() == 1 && args[0].starts_with("nanoscale-") {
             return Ok(());
         }
@@ -151,7 +152,7 @@ impl PrivilegeWrapper {
         Err(anyhow!("userdel arguments are not allowed: {args:?}"))
     }
 
-    fn validate_certbot_args(&self, args: &[&str]) -> Result<()> {
+    fn validate_certbot_args(args: &[&str]) -> Result<()> {
         if args.len() >= 2 && args[0] == "--nginx" {
             return Ok(());
         }
@@ -159,7 +160,7 @@ impl PrivilegeWrapper {
         Err(anyhow!("certbot arguments are not allowed: {args:?}"))
     }
 
-    fn validate_mv_args(&self, args: &[&str]) -> Result<()> {
+    fn validate_mv_args(args: &[&str]) -> Result<()> {
         if args.len() != 2 {
             return Err(anyhow!("mv requires source and destination paths"));
         }
@@ -170,14 +171,14 @@ impl PrivilegeWrapper {
         let source_allowed = source.starts_with("/opt/nanoscale/tmp/nanoscale-")
             && (source.ends_with(".service")
                 || source.ends_with(".socket")
-                || source.ends_with(".conf"));
+                || Self::has_conf_extension(source));
 
         let destination_allowed = (destination.starts_with("/etc/systemd/system/nanoscale-")
             && (destination.ends_with(".service") || destination.ends_with(".socket")))
             || (destination.starts_with("/etc/nginx/sites-available/nanoscale-")
-                && destination.ends_with(".conf"))
+                && Self::has_conf_extension(destination))
             || (destination.starts_with("/etc/nginx/sites-enabled/nanoscale-")
-                && destination.ends_with(".conf"));
+                && Self::has_conf_extension(destination));
 
         if source_allowed && destination_allowed {
             return Ok(());
@@ -186,7 +187,7 @@ impl PrivilegeWrapper {
         Err(anyhow!("mv arguments are not allowed: {args:?}"))
     }
 
-    fn validate_chown_args(&self, args: &[&str]) -> Result<()> {
+    fn validate_chown_args(args: &[&str]) -> Result<()> {
         if args.len() != 3 || args[0] != "-R" {
             return Err(anyhow!("chown arguments are not allowed: {args:?}"));
         }
@@ -210,7 +211,7 @@ impl PrivilegeWrapper {
         Err(anyhow!("chown arguments are not allowed: {args:?}"))
     }
 
-    fn validate_rm_args(&self, args: &[&str]) -> Result<()> {
+    fn validate_rm_args(args: &[&str]) -> Result<()> {
         if args.len() != 2 {
             return Err(anyhow!("rm requires exactly two arguments"));
         }
@@ -218,18 +219,18 @@ impl PrivilegeWrapper {
         let flag = args[0];
         let target = args[1];
 
-        if flag == "-f" && self.rm_file_target_allowed(target) {
+        if flag == "-f" && Self::rm_file_target_allowed(target) {
             return Ok(());
         }
 
-        if flag == "-rf" && self.rm_directory_target_allowed(target) {
+        if flag == "-rf" && Self::rm_directory_target_allowed(target) {
             return Ok(());
         }
 
         Err(anyhow!("rm arguments are not allowed: {args:?}"))
     }
 
-    fn rm_file_target_allowed(&self, target: &str) -> bool {
+    fn rm_file_target_allowed(target: &str) -> bool {
         (target.starts_with("/etc/systemd/system/nanoscale-")
             && (target.ends_with(".service") || target.ends_with(".socket")))
             || (target.starts_with("/etc/systemd/system/multi-user.target.wants/nanoscale-")
@@ -237,19 +238,25 @@ impl PrivilegeWrapper {
             || (target.starts_with("/etc/systemd/system/sockets.target.wants/nanoscale-")
                 && target.ends_with(".socket"))
             || (target.starts_with("/etc/nginx/sites-enabled/nanoscale-")
-                && target.ends_with(".conf"))
+                && Self::has_conf_extension(target))
     }
 
-    fn rm_directory_target_allowed(&self, target: &str) -> bool {
+    fn rm_directory_target_allowed(target: &str) -> bool {
         (target.starts_with("/opt/nanoscale/sites/") || target.starts_with("/opt/nanoscale/tmp/"))
             && !target.contains("..")
     }
 
-    fn validate_fallocate_args(&self, args: &[&str]) -> Result<()> {
+    fn validate_fallocate_args(args: &[&str]) -> Result<()> {
         if args == ["-l", "2G", "/opt/nanoscale/tmp/nanoscale.swap"] {
             return Ok(());
         }
 
         Err(anyhow!("fallocate arguments are not allowed: {args:?}"))
+    }
+
+    fn has_conf_extension(path: &str) -> bool {
+        Path::new(path)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("conf"))
     }
 }
