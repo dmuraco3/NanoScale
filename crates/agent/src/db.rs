@@ -62,6 +62,7 @@ pub struct ProjectListRecord {
     pub repo_url: String,
     pub branch: String,
     pub start_command: String,
+    pub port: i64,
     pub created_at: String,
 }
 
@@ -86,6 +87,12 @@ pub struct DbClient {
 }
 
 impl DbClient {
+    const BASE_PROJECT_PORT: i64 = 3100;
+
+    pub const fn min_project_port() -> i64 {
+        Self::BASE_PROJECT_PORT
+    }
+
     pub async fn connect(database_url: &str) -> Result<Self> {
         let connect_options = SqliteConnectOptions::new()
             .filename(database_url)
@@ -278,8 +285,8 @@ impl DbClient {
     }
 
     pub async fn list_projects(&self) -> Result<Vec<ProjectListRecord>> {
-        let rows = sqlx::query_as::<_, (String, String, String, String, String, String)>(
-            "SELECT id, name, repo_url, branch, start_command, created_at FROM projects ORDER BY created_at DESC",
+        let rows = sqlx::query_as::<_, (String, String, String, String, String, i64, String)>(
+            "SELECT id, name, repo_url, branch, start_command, port, created_at FROM projects ORDER BY created_at DESC",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -287,12 +294,13 @@ impl DbClient {
         let projects = rows
             .into_iter()
             .map(
-                |(id, name, repo_url, branch, start_command, created_at)| ProjectListRecord {
+                |(id, name, repo_url, branch, start_command, port, created_at)| ProjectListRecord {
                     id,
                     name,
                     repo_url,
                     branch,
                     start_command,
+                    port,
                     created_at,
                 },
             )
@@ -351,6 +359,30 @@ impl DbClient {
                 server_name,
             },
         ))
+    }
+
+    pub async fn next_available_project_port(&self) -> Result<i64> {
+        let max_port = sqlx::query_scalar::<_, Option<i64>>("SELECT MAX(port) FROM projects")
+            .fetch_one(&self.pool)
+            .await?
+            .unwrap_or(Self::BASE_PROJECT_PORT - 1);
+
+        let next_port = if max_port < Self::BASE_PROJECT_PORT {
+            Self::BASE_PROJECT_PORT
+        } else {
+            max_port + 1
+        };
+
+        Ok(next_port)
+    }
+
+    pub async fn is_project_port_in_use(&self, port: i64) -> Result<bool> {
+        let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM projects WHERE port = ?1")
+            .bind(port)
+            .fetch_one(&self.pool)
+            .await?;
+
+        Ok(count > 0)
     }
 
     pub fn pool(&self) -> Pool<Sqlite> {

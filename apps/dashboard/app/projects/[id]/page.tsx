@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, GitBranch, ExternalLink, Clock, Server } from "lucide-react";
+import { ArrowLeft, GitBranch, ExternalLink, Clock, Server, Network } from "lucide-react";
 import { AuthGuard } from "@/components/auth-guard";
 import { DashboardLayout } from "@/components/layout";
 import { Card, CardHeader, CardTitle, CardContent, Badge, Button } from "@/components/ui";
@@ -57,7 +57,7 @@ async function ProjectDetailsPage(props: ProjectDetailsPageProps) {
       </div>
 
       {/* Info cards grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-[var(--foreground-secondary)]">
@@ -101,6 +101,20 @@ async function ProjectDetailsPage(props: ProjectDetailsPageProps) {
             <span className="flex items-center gap-2 text-[var(--foreground)]">
               <Clock className="h-4 w-4" />
               {new Date(project.created_at).toLocaleDateString()}
+            </span>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-[var(--foreground-secondary)]">
+              Port
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="mt-0">
+            <span className="flex items-center gap-2 text-[var(--foreground)]">
+              <Network className="h-4 w-4" />
+              {project.port}
             </span>
           </CardContent>
         </Card>

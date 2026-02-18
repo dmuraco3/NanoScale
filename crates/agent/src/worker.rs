@@ -217,10 +217,11 @@ async fn internal_projects(
             &build_output.source_dir,
             &build_output.runtime,
             &run_command_for_systemd,
+            port,
             &privilege_wrapper,
         )
         .context("systemd generation failed")?;
-        NginxGenerator::generate_and_install(&project_id_for_build, 3000, &privilege_wrapper)
+        NginxGenerator::generate_and_install(&project_id_for_build, port, &privilege_wrapper)
             .context("nginx generation failed")?;
 
         Result::<(), anyhow::Error>::Ok(())

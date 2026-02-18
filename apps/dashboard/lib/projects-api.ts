@@ -13,6 +13,7 @@ export interface ProjectListItem {
   repo_url: string;
   branch: string;
   run_command: string;
+  port: number;
   status: string;
   created_at: string;
 }
@@ -41,6 +42,7 @@ export interface CreateProjectPayload {
   install_command: string;
   run_command: string;
   output_directory: string;
+  port?: number;
   env_vars: ProjectEnvVar[];
 }
 

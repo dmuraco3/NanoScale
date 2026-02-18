@@ -47,6 +47,7 @@ export default function ProjectForm(props: ProjectFormProps) {
   const [installCommand, setInstallCommand] = useState(defaultPreset.installCommand);
   const [runCommand, setRunCommand] = useState(defaultPreset.runCommand);
   const [outputDirectory, setOutputDirectory] = useState(defaultPreset.outputDirectory);
+  const [port, setPort] = useState("");
   const [serverId, setServerId] = useState(props.servers[0]?.id ?? "");
   const [envVars, setEnvVars] = useState<ProjectEnvVar[]>([{ key: "", value: "" }]);
   const [isSubmitting, setSubmitting] = useState(false);
@@ -95,6 +96,7 @@ export default function ProjectForm(props: ProjectFormProps) {
         install_command: installCommand,
         run_command: runCommand,
         output_directory: outputDirectory,
+        port: port.trim().length > 0 ? Number(port) : undefined,
         env_vars: filteredEnvVars,
       });
 
@@ -230,6 +232,19 @@ export default function ProjectForm(props: ProjectFormProps) {
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setOutputDirectory(e.target.value)}
                 placeholder=".next/standalone"
                 required
+              />
+
+              <Input
+                label="Application Port (Optional)"
+                id="port"
+                type="number"
+                min={3100}
+                max={65535}
+                step={1}
+                value={port}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPort(e.target.value)}
+                placeholder="Auto-assign"
+                hint="Leave empty to auto-assign. Minimum allowed port is 3100."
               />
 
               <Select

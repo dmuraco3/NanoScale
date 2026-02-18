@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { FolderKanban, Plus, GitBranch, ExternalLink } from "lucide-react";
+import { FolderKanban, Plus, GitBranch, ExternalLink, Network } from "lucide-react";
 import { AuthGuard } from "@/components/auth-guard";
 import { DashboardLayout } from "@/components/layout";
 import { Card, Button, Badge } from "@/components/ui";
@@ -42,8 +42,7 @@ async function ProjectsPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {projects.map((project) => (
-            <Link key={project.id} href={`/projects/${project.id}`}>
-              <Card hover className="h-full">
+            <Card key={project.id} hover className="h-full">
                 <div className="flex items-start justify-between mb-4">
                   <div className="h-10 w-10 rounded-lg bg-[var(--background-tertiary)] flex items-center justify-center">
                     <FolderKanban className="h-5 w-5 text-[var(--foreground-secondary)]" />
@@ -56,7 +55,11 @@ async function ProjectsPage() {
                   </Badge>
                 </div>
 
-                <h3 className="font-semibold text-[var(--foreground)] mb-1">{project.name}</h3>
+                <h3 className="font-semibold text-[var(--foreground)] mb-1">
+                  <Link href={`/projects/${project.id}`} className="hover:text-[var(--accent)] transition-colors">
+                    {project.name}
+                  </Link>
+                </h3>
                 
                 <div className="flex items-center gap-2 text-sm text-[var(--foreground-muted)]">
                   <GitBranch className="h-3.5 w-3.5" />
@@ -67,24 +70,35 @@ async function ProjectsPage() {
                   Run: {project.run_command}
                 </p>
 
+                <p className="mt-1 text-xs text-[var(--foreground-muted)] flex items-center gap-1">
+                  <Network className="h-3.5 w-3.5" />
+                  Port: {project.port}
+                </p>
+
                 <div className="mt-4 pt-4 border-t border-[var(--border)] flex items-center justify-between">
                   <a
                     href={project.repo_url}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-xs text-[var(--foreground-muted)] hover:text-[var(--accent)] flex items-center gap-1"
-                    onClick={(e) => e.stopPropagation()}
                   >
                     {project.repo_url.replace("https://github.com/", "").slice(0, 25)}
                     {project.repo_url.replace("https://github.com/", "").length > 25 && "..."}
                     <ExternalLink className="h-3 w-3" />
                   </a>
-                  <span className="text-xs text-[var(--foreground-muted)]">
-                    {new Date(project.created_at).toLocaleDateString()}
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-[var(--foreground-muted)]">
+                      {new Date(project.created_at).toLocaleDateString()}
+                    </span>
+                    <Link
+                      href={`/projects/${project.id}`}
+                      className="text-xs text-[var(--foreground-muted)] hover:text-[var(--accent)]"
+                    >
+                      Details
+                    </Link>
+                  </div>
                 </div>
               </Card>
-            </Link>
           ))}
         </div>
       )}

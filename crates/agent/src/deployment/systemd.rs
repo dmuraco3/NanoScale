@@ -18,6 +18,7 @@ impl SystemdGenerator {
         source_dir: &Path,
         runtime: &AppRuntime,
         run_command: &str,
+        port: u16,
         privilege_wrapper: &PrivilegeWrapper,
     ) -> Result<()> {
         let service_name = format!("nanoscale-{project_id}");
@@ -38,8 +39,9 @@ impl SystemdGenerator {
             source_dir_string,
             runtime,
             run_command,
+            port,
         )?;
-        let socket_template = Self::socket_template(&service_name);
+        let socket_template = Self::socket_template(&service_name, port);
 
         fs::write(&tmp_service_path, service_template)?;
         fs::write(&tmp_socket_path, socket_template)?;
@@ -66,11 +68,12 @@ impl SystemdGenerator {
         source_dir: &str,
         runtime: &AppRuntime,
         run_command: &str,
+        port: u16,
     ) -> Result<String> {
-        let exec_start = Self::resolve_exec_start(source_dir, runtime, run_command)?;
+        let exec_start = Self::resolve_exec_start(source_dir, runtime, run_command, port)?;
 
         Ok(format!(
-            "[Unit]\nDescription=NanoScale app service ({service_name})\nAfter=network.target\n\n[Service]\nType=simple\nUser=nanoscale-{project_id}\nGroup=nanoscale-{project_id}\nWorkingDirectory={source_dir}\nEnvironment=NODE_ENV=production\nEnvironment=PORT=3000\nExecStart={exec_start}\nRestart=always\nRestartSec=2\n\n# SECURITY HARDENING\nProtectSystem=strict\nProtectHome=yes\nPrivateTmp=yes\nNoNewPrivileges=yes\nProtectProc=invisible\nReadWritePaths={source_dir}\n\n[Install]\nWantedBy=multi-user.target\n"
+            "[Unit]\nDescription=NanoScale app service ({service_name})\nAfter=network.target\n\n[Service]\nType=simple\nUser=nanoscale-{project_id}\nGroup=nanoscale-{project_id}\nWorkingDirectory={source_dir}\nEnvironment=NODE_ENV=production\nEnvironment=PORT={port}\nExecStart={exec_start}\nRestart=always\nRestartSec=2\n\n# SECURITY HARDENING\nProtectSystem=strict\nProtectHome=yes\nPrivateTmp=yes\nNoNewPrivileges=yes\nProtectProc=invisible\nReadWritePaths={source_dir}\n\n[Install]\nWantedBy=multi-user.target\n"
         ))
     }
 
@@ -78,13 +81,14 @@ impl SystemdGenerator {
         source_dir: &str,
         runtime: &AppRuntime,
         run_command: &str,
+        port: u16,
     ) -> Result<String> {
         let trimmed_run_command = run_command.trim();
         if trimmed_run_command.is_empty() {
             return Ok(match runtime {
                 AppRuntime::StandaloneNode => format!("/usr/bin/node {source_dir}/server.js"),
                 AppRuntime::BunStart { bun_binary } => {
-                    format!("{bun_binary} run start -- --hostname 127.0.0.1 --port 3000")
+                    format!("{bun_binary} run start -- --hostname 127.0.0.1 --port {port}")
                 }
             });
         }
@@ -158,9 +162,9 @@ impl SystemdGenerator {
         bail!("bun binary not found; install bun or set NANOSCALE_BUN_BIN (PATH={current_path})")
     }
 
-    fn socket_template(service_name: &str) -> String {
+    fn socket_template(service_name: &str, port: u16) -> String {
         format!(
-            "[Unit]\nDescription=NanoScale app socket ({service_name})\nPartOf={service_name}.service\n\n[Socket]\nListenStream=127.0.0.1:3000\nNoDelay=true\n\n[Install]\nWantedBy=sockets.target\n"
+            "[Unit]\nDescription=NanoScale app socket ({service_name})\nPartOf={service_name}.service\n\n[Socket]\nListenStream=127.0.0.1:{port}\nNoDelay=true\n\n[Install]\nWantedBy=sockets.target\n"
         )
     }
 }

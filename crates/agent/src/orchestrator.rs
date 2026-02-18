@@ -92,6 +92,7 @@ struct CreateProjectRequest {
     install_command: String,
     run_command: String,
     output_directory: String,
+    port: Option<u16>,
     env_vars: Vec<ProjectEnvVar>,
 }
 
@@ -107,6 +108,7 @@ struct ProjectListItem {
     repo_url: String,
     branch: String,
     run_command: String,
+    port: i64,
     status: String,
     created_at: String,
 }
@@ -347,6 +349,7 @@ async fn internal_projects(
             &build_output.source_dir,
             &build_output.runtime,
             &run_command_for_systemd,
+            port,
             &privilege_wrapper,
         )
         .context("systemd generation failed")?;
@@ -532,6 +535,7 @@ fn map_project_list_record(project: ProjectListRecord) -> ProjectListItem {
         repo_url: project.repo_url,
         branch: project.branch,
         run_command: project.start_command,
+        port: project.port,
         status: "deployed".to_string(),
         created_at: project.created_at,
     }
@@ -628,6 +632,47 @@ async fn create_project(
         ))?;
 
     let project_id = Uuid::new_v4().to_string();
+    let project_port = match payload.port {
+        Some(requested_port) => {
+            let requested_port = i64::from(requested_port);
+            if requested_port < DbClient::min_project_port() {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    format!(
+                        "Requested port must be {} or higher",
+                        DbClient::min_project_port()
+                    ),
+                ));
+            }
+
+            let in_use = state
+                .db
+                .is_project_port_in_use(requested_port)
+                .await
+                .map_err(|error| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Unable to validate requested port: {error}"),
+                    )
+                })?;
+
+            if in_use {
+                return Err((
+                    StatusCode::CONFLICT,
+                    format!("Requested port {requested_port} is already in use"),
+                ));
+            }
+
+            requested_port
+        }
+        None => state.db.next_available_project_port().await.map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Unable to allocate project port: {error}"),
+            )
+        })?,
+    };
+
     let project = NewProject {
         id: project_id.clone(),
         server_id: payload.server_id.clone(),
@@ -643,7 +688,7 @@ async fn create_project(
                 format!("Failed to serialize env vars: {error}"),
             )
         })?,
-        port: 3000,
+        port: project_port,
     };
 
     state.db.insert_project(&project).await.map_err(|error| {
@@ -665,6 +710,12 @@ async fn create_project(
         &connection.secret_key,
         &payload,
         &project_id,
+        u16::try_from(project_port).map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Allocated port out of range: {project_port}"),
+            )
+        })?,
     )
     .await
     {
@@ -684,6 +735,7 @@ async fn call_worker_create_project(
     secret_key: &str,
     payload: &CreateProjectRequest,
     project_id: &str,
+    project_port: u16,
 ) -> Result<(), anyhow::Error> {
     let worker_payload = WorkerCreateProjectRequest {
         project_id: project_id.to_string(),
@@ -694,7 +746,7 @@ async fn call_worker_create_project(
         install_command: payload.install_command.clone(),
         run_command: payload.run_command.clone(),
         output_directory: payload.output_directory.clone(),
-        port: 3000,
+        port: project_port,
         env_vars: payload.env_vars.clone(),
     };
 
