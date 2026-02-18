@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRef, useState } from "react";
 import { Server, Plus, MoreHorizontal, Copy, Check, Loader2 } from "lucide-react";
 
@@ -146,7 +147,12 @@ export default function ServersPageClient(props: ServersPageClientProps) {
                     <div className="h-8 w-8 rounded-md bg-[var(--background-tertiary)] flex items-center justify-center">
                       <Server className="h-4 w-4 text-[var(--foreground-secondary)]" />
                     </div>
-                    <span className="font-medium">{server.name}</span>
+                    <Link
+                      href={`/servers/${server.id}`}
+                      className="font-medium hover:text-[var(--accent)] transition-colors"
+                    >
+                      {server.name}
+                    </Link>
                   </div>
                 </TableCell>
                 <TableCell className="text-[var(--foreground-secondary)]">

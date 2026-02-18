@@ -32,6 +32,7 @@ fn new_state(db: DbClient) -> OrchestratorState {
         local_server_id: "orchestrator-test".to_string(),
         base_domain: None,
         tls_email: None,
+        stats_cache: Arc::new(RwLock::new(stats_cache::StatsCache::default())),
     }
 }
 

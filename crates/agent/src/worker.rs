@@ -69,6 +69,7 @@ pub async fn run(join_token: &str) -> Result<()> {
 
     let app = Router::new()
         .route("/internal/health", post(handlers::internal_health))
+        .route("/internal/stats", post(handlers::internal_stats))
         .route("/internal/deploy", post(handlers::internal_deploy))
         .route("/internal/projects", post(handlers::internal_projects))
         .route(

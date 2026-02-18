@@ -18,8 +18,11 @@ use crate::system::PrivilegeWrapper;
 
 use super::api_types::{
     CreateProjectPlaceholderResponse, DeployPlaceholderResponse, HealthResponse,
+    ProjectStatsResponse, StatsRequest, StatsResponse, StatsTotalsResponse,
     WorkerCreateProjectRequest, WorkerState,
 };
+
+use crate::system::collect_host_stats;
 
 pub(super) async fn internal_health() -> Json<HealthResponse> {
     let mut system = System::new_all();
@@ -31,6 +34,42 @@ pub(super) async fn internal_health() -> Json<HealthResponse> {
         used_memory_bytes: system.used_memory(),
         total_memory_bytes: system.total_memory(),
     })
+}
+
+pub(super) async fn internal_stats(
+    Json(payload): Json<StatsRequest>,
+) -> Result<Json<StatsResponse>, StatusCode> {
+    let project_ids = payload.project_ids;
+
+    let snapshot = tokio::task::spawn_blocking(move || collect_host_stats(&project_ids))
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let totals = StatsTotalsResponse {
+        cpu_usage_percent: snapshot.totals.cpu_usage_percent,
+        cpu_cores: snapshot.totals.cpu_cores,
+        used_memory_bytes: snapshot.totals.used_memory_bytes,
+        total_memory_bytes: snapshot.totals.total_memory_bytes,
+        used_disk_bytes: snapshot.totals.used_disk_bytes,
+        total_disk_bytes: snapshot.totals.total_disk_bytes,
+        network_rx_bytes_total: snapshot.totals.network_rx_bytes_total,
+        network_tx_bytes_total: snapshot.totals.network_tx_bytes_total,
+    };
+
+    let mut projects = Vec::with_capacity(snapshot.projects.len());
+    for (project_id, counters) in snapshot.projects {
+        projects.push(ProjectStatsResponse {
+            project_id,
+            cpu_usage_nsec_total: counters.cpu_usage_nsec_total,
+            memory_current_bytes: counters.memory_current_bytes,
+            disk_usage_bytes: counters.disk_usage_bytes,
+            network_ingress_bytes_total: counters.network_ingress_bytes_total,
+            network_egress_bytes_total: counters.network_egress_bytes_total,
+        });
+    }
+    projects.sort_by(|a, b| a.project_id.cmp(&b.project_id));
+
+    Ok(Json(StatsResponse { totals, projects }))
 }
 
 pub(super) async fn internal_deploy() -> (StatusCode, Json<DeployPlaceholderResponse>) {

@@ -16,6 +16,8 @@ use crate::config::NanoScaleConfig;
 use crate::db::{DbClient, NewServer};
 use crate::deployment::inactivity_monitor::{InactivityMonitor, MonitoredProject};
 
+use self::stats_cache::StatsCache;
+
 mod api_types;
 mod auth;
 mod cluster;
@@ -24,6 +26,7 @@ mod project_domain;
 mod project_mapping;
 mod projects;
 mod servers;
+mod stats_cache;
 mod worker_client;
 
 #[cfg(test)]
@@ -37,6 +40,7 @@ pub struct OrchestratorState {
     pub local_server_id: String,
     pub base_domain: Option<String>,
     pub tls_email: Option<String>,
+    pub stats_cache: Arc<RwLock<StatsCache>>,
 }
 
 /// .
@@ -78,6 +82,7 @@ pub async fn run() -> Result<()> {
         local_server_id,
         base_domain,
         tls_email,
+        stats_cache: Arc::new(RwLock::new(StatsCache::default())),
     };
 
     let monitor = InactivityMonitor::new(state.monitored_projects.clone());
@@ -103,6 +108,7 @@ pub async fn run() -> Result<()> {
         .route("/api/auth/status", post(auth::auth_status))
         .route("/api/auth/session", post(auth::auth_session))
         .route("/api/servers", get(servers::list_servers))
+        .route("/api/servers/:id/stats", get(servers::get_server_stats))
         .route(
             "/api/projects",
             get(projects::list_projects).post(projects::create_project),

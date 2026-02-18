@@ -2,8 +2,42 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use hmac::Mac;
+use serde::{Deserialize, Serialize};
 
 use super::api_types::{CreateProjectRequest, WorkerCreateProjectRequest};
+
+#[derive(Debug, Serialize)]
+struct WorkerStatsRequest {
+    project_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct WorkerStatsResponse {
+    pub(super) totals: WorkerStatsTotals,
+    pub(super) projects: Vec<WorkerProjectStats>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct WorkerStatsTotals {
+    pub(super) cpu_usage_percent: f32,
+    pub(super) cpu_cores: usize,
+    pub(super) used_memory_bytes: u64,
+    pub(super) total_memory_bytes: u64,
+    pub(super) used_disk_bytes: u64,
+    pub(super) total_disk_bytes: u64,
+    pub(super) network_rx_bytes_total: u64,
+    pub(super) network_tx_bytes_total: u64,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct WorkerProjectStats {
+    pub(super) project_id: String,
+    pub(super) cpu_usage_nsec_total: u64,
+    pub(super) memory_current_bytes: u64,
+    pub(super) disk_usage_bytes: u64,
+    pub(super) network_ingress_bytes_total: u64,
+    pub(super) network_egress_bytes_total: u64,
+}
 
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn call_worker_create_project(
@@ -87,6 +121,40 @@ pub(super) async fn call_worker_delete_project(
     }
 
     Ok(())
+}
+
+pub(super) async fn call_worker_stats(
+    server_id: &str,
+    worker_host: &str,
+    secret_key: &str,
+    project_ids: Vec<String>,
+) -> Result<WorkerStatsResponse> {
+    let payload = WorkerStatsRequest { project_ids };
+    let body = serde_json::to_vec(&payload)?;
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)?
+        .as_secs()
+        .to_string();
+    let signature = sign_internal_payload(&body, &timestamp, secret_key)?;
+    let url = format!("http://{worker_host}:4000/internal/stats");
+
+    let response = reqwest::Client::new()
+        .post(url)
+        .header("X-Cluster-Timestamp", timestamp)
+        .header("X-Cluster-Signature", signature)
+        .header("X-Server-Id", server_id)
+        .header("content-type", "application/json")
+        .body(body)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        anyhow::bail!("internal stats endpoint returned {status}: {body}");
+    }
+
+    Ok(response.json::<WorkerStatsResponse>().await?)
 }
 
 fn sign_internal_payload(body: &[u8], timestamp: &str, secret_key: &str) -> Result<String> {

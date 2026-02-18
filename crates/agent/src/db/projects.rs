@@ -71,6 +71,24 @@ impl DbClient {
             .collect())
     }
 
+    /// Lists projects for a specific server (id + name).
+    ///
+    /// # Errors
+    /// Returns an error if the query fails.
+    pub async fn list_projects_for_server_stats(
+        &self,
+        server_id: &str,
+    ) -> Result<Vec<(String, String)>> {
+        let rows = sqlx::query_as::<_, (String, String)>(
+            "SELECT id, name FROM projects WHERE server_id = ?1 ORDER BY created_at DESC",
+        )
+        .bind(server_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows)
+    }
+
     /// Fetches a project's full details.
     ///
     /// # Errors

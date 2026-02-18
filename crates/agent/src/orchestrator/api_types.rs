@@ -27,6 +27,41 @@ pub(super) struct ServerListItem {
     pub(super) ram_usage_percent: u8,
 }
 
+#[derive(Debug, Serialize)]
+pub(super) struct ServerStatsResponse {
+    pub(super) server_id: String,
+    pub(super) sample_unix_ms: u64,
+    pub(super) totals: ServerTotalsStatsResponse,
+    pub(super) projects: Vec<ProjectStatsBreakdownResponse>,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct ServerTotalsStatsResponse {
+    pub(super) cpu_usage_percent: f32,
+    pub(super) cpu_cores: usize,
+    pub(super) used_memory_bytes: u64,
+    pub(super) total_memory_bytes: u64,
+    pub(super) used_disk_bytes: u64,
+    pub(super) total_disk_bytes: u64,
+    pub(super) network_rx_bytes_total: u64,
+    pub(super) network_tx_bytes_total: u64,
+    pub(super) network_rx_bytes_per_sec: f64,
+    pub(super) network_tx_bytes_per_sec: f64,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct ProjectStatsBreakdownResponse {
+    pub(super) project_id: String,
+    pub(super) project_name: String,
+    pub(super) cpu_usage_percent: f64,
+    pub(super) memory_current_bytes: u64,
+    pub(super) disk_usage_bytes: u64,
+    pub(super) network_ingress_bytes_total: u64,
+    pub(super) network_egress_bytes_total: u64,
+    pub(super) network_ingress_bytes_per_sec: f64,
+    pub(super) network_egress_bytes_per_sec: f64,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub(super) struct ProjectEnvVar {
     pub(super) key: String,

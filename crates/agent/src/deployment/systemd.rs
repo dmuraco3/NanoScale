@@ -82,7 +82,7 @@ impl SystemdGenerator {
         let exec_start = Self::resolve_exec_start(source_dir, runtime, run_command, port)?;
 
         Ok(format!(
-            "[Unit]\nDescription=NanoScale app service ({service_name})\nAfter=network.target\n\n[Service]\nType=simple\nUser=nanoscale-{project_id}\nGroup=nanoscale-{project_id}\nWorkingDirectory={source_dir}\nEnvironment=NODE_ENV=production\nEnvironment=PORT={port}\nExecStart={exec_start}\nRestart=always\nRestartSec=2\n\n# SECURITY HARDENING\nProtectSystem=strict\nProtectHome=yes\nPrivateTmp=yes\nNoNewPrivileges=yes\nProtectProc=invisible\nReadWritePaths={source_dir}\n\n[Install]\nWantedBy=multi-user.target\n"
+            "[Unit]\nDescription=NanoScale app service ({service_name})\nAfter=network.target\n\n[Service]\nType=simple\nUser=nanoscale-{project_id}\nGroup=nanoscale-{project_id}\nWorkingDirectory={source_dir}\nEnvironment=NODE_ENV=production\nEnvironment=PORT={port}\nExecStart={exec_start}\nRestart=always\nRestartSec=2\n\n# ACCOUNTING (for stats)\nCPUAccounting=yes\nMemoryAccounting=yes\nIPAccounting=yes\n\n# SECURITY HARDENING\nProtectSystem=strict\nProtectHome=yes\nPrivateTmp=yes\nNoNewPrivileges=yes\nProtectProc=invisible\nReadWritePaths={source_dir}\n\n[Install]\nWantedBy=multi-user.target\n"
         ))
     }
 

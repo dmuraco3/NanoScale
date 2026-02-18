@@ -12,6 +12,39 @@ pub(super) struct HealthResponse {
     pub(super) total_memory_bytes: u64,
 }
 
+#[derive(Debug, Deserialize)]
+pub(super) struct StatsRequest {
+    pub(super) project_ids: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct StatsResponse {
+    pub(super) totals: StatsTotalsResponse,
+    pub(super) projects: Vec<ProjectStatsResponse>,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct StatsTotalsResponse {
+    pub(super) cpu_usage_percent: f32,
+    pub(super) cpu_cores: usize,
+    pub(super) used_memory_bytes: u64,
+    pub(super) total_memory_bytes: u64,
+    pub(super) used_disk_bytes: u64,
+    pub(super) total_disk_bytes: u64,
+    pub(super) network_rx_bytes_total: u64,
+    pub(super) network_tx_bytes_total: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct ProjectStatsResponse {
+    pub(super) project_id: String,
+    pub(super) cpu_usage_nsec_total: u64,
+    pub(super) memory_current_bytes: u64,
+    pub(super) disk_usage_bytes: u64,
+    pub(super) network_ingress_bytes_total: u64,
+    pub(super) network_egress_bytes_total: u64,
+}
+
 #[derive(Debug, Serialize)]
 pub(super) struct DeployPlaceholderResponse {
     pub(super) status: &'static str,
