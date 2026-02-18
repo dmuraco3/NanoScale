@@ -6,11 +6,11 @@ import { redirect } from "next/navigation";
 import ServerDetailsPageClient from "./server-details-page-client";
 
 interface ServerDetailsPageProps {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 async function ServerDetailsPage(props: ServerDetailsPageProps) {
-  const { id } = props.params;
+  const { id } = await props.params;
 
   const servers = await fetchServers();
   const serverById = servers.find((item) => item.id === id) ?? null;
