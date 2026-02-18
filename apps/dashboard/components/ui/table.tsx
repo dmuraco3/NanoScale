@@ -1,4 +1,4 @@
-import { type ReactNode, type ThHTMLAttributes, type TdHTMLAttributes } from "react";
+import type { MouseEventHandler, ReactNode, ThHTMLAttributes, TdHTMLAttributes } from "react";
 import { clsx } from "clsx";
 
 interface TableProps {
@@ -43,7 +43,7 @@ export function TableBody({ children }: TableBodyProps) {
 interface TableRowProps {
   children: ReactNode;
   className?: string;
-  onClick?: () => void;
+  onClick?: MouseEventHandler<HTMLTableRowElement>;
 }
 
 export function TableRow({ children, className, onClick }: TableRowProps) {

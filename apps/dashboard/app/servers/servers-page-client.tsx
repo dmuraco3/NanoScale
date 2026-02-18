@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { Server, Plus, MoreHorizontal, Copy, Check, Loader2 } from "lucide-react";
 
@@ -31,6 +32,7 @@ interface ServersPageClientProps {
 }
 
 export default function ServersPageClient(props: ServersPageClientProps) {
+  const router = useRouter();
   const [servers, setServers] = useState<ServerListItem[]>(props.initialServers);
   const [isModalOpen, setModalOpen] = useState(false);
   const [joinToken, setJoinToken] = useState("");
@@ -38,6 +40,19 @@ export default function ServersPageClient(props: ServersPageClientProps) {
   const [isPolling, setPolling] = useState(false);
   const [copyLabel, setCopyLabel] = useState<"copy" | "copied">("copy");
   const pollingActiveRef = useRef(false);
+
+  function handleServerRowClick(event: React.MouseEvent<HTMLTableRowElement>, serverId: string) {
+    const target = event.target as HTMLElement | null;
+    const clickedInteractiveElement = target?.closest(
+      "a,button,[role='button'],input,select,textarea,label",
+    );
+
+    if (clickedInteractiveElement) {
+      return;
+    }
+
+    router.push(`/servers/${serverId}`);
+  }
 
   const orchestratorUrl =
     process.env.NEXT_PUBLIC_NANOSCALE_ORCHESTRATOR_URL ??
@@ -141,7 +156,10 @@ export default function ServersPageClient(props: ServersPageClientProps) {
             />
           ) : (
             servers.map((server) => (
-              <TableRow key={server.id}>
+              <TableRow
+                key={server.id}
+                onClick={(event) => handleServerRowClick(event, server.id)}
+              >
                 <TableCell>
                   <div className="flex items-center gap-3">
                     <div className="h-8 w-8 rounded-md bg-[var(--background-tertiary)] flex items-center justify-center">
