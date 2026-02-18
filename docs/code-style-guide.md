@@ -53,6 +53,7 @@ refactor: extract sidebar component
 
 - **No `any`:** The `any` type is strictly forbidden.
 - **Export Interfaces:** All interface and type definitions must be exported.
+- **Prefer named functions over arrow functions:** Use `function foo() {}` (or `async function foo() {}`) instead of `const foo = () => {}` for named/standalone functions.
 
 ```ts
 // Good
@@ -69,6 +70,12 @@ export interface ServerProps {
 - **Components:** PascalCase (e.g., `ServerList.tsx`)
 - **Functions/Variables:** camelCase (e.g., `fetchServerStats`)
 - **Constants:** UPPER_SNAKE_CASE (e.g., `MAX_RETRY_COUNT`)
+
+### 2.5 Next.js Server Actions
+
+- **Server Actions must live in separate files.** Define actions in dedicated modules (e.g., `app/.../actions.ts` or `lib/*-actions.ts`) and import them where needed.
+- **Never define Server Actions inside React components.** Do not create `async function action()` bodies within component files or component scopes.
+- **Keep actions close to the domain.** Place the action module next to the route segment or feature it serves, rather than in a global catch-all.
 
 ## 3. Backend Style (Rust / Axum)
 
