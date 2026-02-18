@@ -84,6 +84,8 @@ pub(super) async fn get_server_stats(
 ) -> Result<Json<ServerStatsResponse>, StatusCode> {
     require_authenticated(&session).await?;
 
+    println!("servers.rs\tget_server_stats\tserver_id='{server_id}'");
+
     let project_rows = state
         .db
         .list_projects_for_server_stats(&server_id)
