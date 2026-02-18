@@ -54,6 +54,10 @@ export type CreateProjectResult =
   | { ok: true; data: CreateProjectResponse }
   | { ok: false; message: string };
 
+export type DeleteProjectResult =
+  | { ok: true }
+  | { ok: false; message: string };
+
 export async function fetchProjects(): Promise<ProjectListItem[]> {
   const requestHeaders = await headers();
   const cookie = requestHeaders.get("cookie") ?? "";
@@ -133,4 +137,38 @@ export async function createProject(
   }
 
   return { ok: true, data: (await response.json()) as CreateProjectResponse };
+}
+
+export async function deleteProjectById(projectId: string): Promise<DeleteProjectResult> {
+  const requestHeaders = await headers();
+  const cookie = requestHeaders.get("cookie") ?? "";
+  const internalApiUrl = process.env.NANOSCALE_INTERNAL_API_URL ?? "http://127.0.0.1:4000";
+
+  const response = await fetch(`${internalApiUrl}/api/projects/${projectId}`, {
+    method: "DELETE",
+    headers: {
+      cookie,
+    },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    let message = `Unable to delete project (HTTP ${response.status}).`;
+    const rawErrorBody = await response.text();
+
+    try {
+      const errorPayload = JSON.parse(rawErrorBody) as { message?: string };
+      if (errorPayload.message && errorPayload.message.length > 0) {
+        message = errorPayload.message;
+      }
+    } catch {
+      if (rawErrorBody.length > 0) {
+        message = rawErrorBody;
+      }
+    }
+
+    return { ok: false, message };
+  }
+
+  return { ok: true };
 }

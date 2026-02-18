@@ -204,8 +204,8 @@ pub async fn run() -> Result<()> {
         .route("/api/auth/session", post(auth_session))
         .route("/api/servers", get(list_servers))
         .route("/api/projects", get(list_projects).post(create_project))
-        .route("/api/projects/{id}", get(get_project))
-        .route("/api/projects/:id", get(get_project))
+        .route("/api/projects/{id}", get(get_project).delete(delete_project))
+        .route("/api/projects/:id", get(get_project).delete(delete_project))
         .route("/api/cluster/generate-token", post(generate_cluster_token))
         .route("/api/cluster/join", post(join_cluster))
         .nest("/internal", internal_router)
@@ -593,6 +593,46 @@ async fn get_project(
         .ok_or(StatusCode::NOT_FOUND)?;
 
     Ok(Json(map_project_details_record(project)))
+}
+
+async fn delete_project(
+    State(state): State<OrchestratorState>,
+    session: Session,
+    AxumPath(project_id): AxumPath<String>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    require_authenticated(&session)
+        .await
+        .map_err(|status| (status, "Authentication required".to_string()))?;
+
+    let existing_project = state
+        .db
+        .get_project_by_id(&project_id)
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Unable to load project: {error}"),
+            )
+        })?;
+
+    if existing_project.is_none() {
+        return Err((StatusCode::NOT_FOUND, "Project not found".to_string()));
+    }
+
+    state.db.delete_project_by_id(&project_id).await.map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to delete project: {error}"),
+        )
+    })?;
+
+    {
+        let mut monitored_projects = state.monitored_projects.write().await;
+        monitored_projects
+            .retain(|project| project.service_name != format!("nanoscale-{project_id}.service"));
+    }
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn create_project(
