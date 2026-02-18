@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Rocket, Plus, Trash2 } from "lucide-react";
+import { Rocket } from "lucide-react";
 
 import { type ServerListItem } from "@/lib/servers-api";
 import { createProject, type ProjectEnvVar } from "@/lib/projects-api";
 import { DashboardLayout } from "@/components/layout";
 import { Button, Input, Select, Card, CardHeader, CardTitle, CardContent } from "@/components/ui";
 import { useToast } from "@/components/toast";
+import { EnvVarsCard } from "./env-vars-card";
 
 interface ProjectFormProps {
   servers: ServerListItem[];
@@ -264,59 +265,12 @@ export default function ProjectForm(props: ProjectFormProps) {
           </CardContent>
         </Card>
 
-        {/* Environment Variables section */}
-        <Card>
-          <CardHeader className="flex-row items-center justify-between">
-            <CardTitle>Environment Variables</CardTitle>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={addEnvVarRow}
-              leftIcon={<Plus className="h-4 w-4" />}
-            >
-              Add Variable
-            </Button>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {envVars.map((row, index) => (
-                <div key={`${index}-${row.key}`} className="flex gap-3">
-                  <Input
-                    className="flex-1"
-                    placeholder="KEY"
-                    value={row.key}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      updateEnvVar(index, { ...row, key: e.target.value })
-                    }
-                  />
-                  <Input
-                    className="flex-1"
-                    placeholder="VALUE"
-                    value={row.value}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      updateEnvVar(index, { ...row, value: e.target.value })
-                    }
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="md"
-                    onClick={() => removeEnvVarRow(index)}
-                    disabled={envVars.length === 1}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
-              {envVars.length === 0 && (
-                <p className="text-sm text-[var(--foreground-muted)] text-center py-4">
-                  No environment variables configured
-                </p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+        <EnvVarsCard
+          envVars={envVars}
+          onAddRow={addEnvVarRow}
+          onRemoveRow={removeEnvVarRow}
+          onUpdateRow={updateEnvVar}
+        />
 
         {/* Submit */}
         <div className="flex items-center gap-4">

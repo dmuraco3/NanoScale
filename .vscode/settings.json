@@ -4,7 +4,8 @@
     "cargo clippy": true,
     "bun": true,
     "cargo check": true,
-    "cargo tree": true
+    "cargo tree": true,
+    "true": true
   },
   "rust-analyzer.checkOnSave": true,
   "rust-analyzer.check.overrideCommand": [

@@ -8,6 +8,8 @@ use sysinfo::System;
 
 use crate::system::PrivilegeWrapper;
 
+mod bun;
+
 const MIN_RAM_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const SWAP_FILE_PATH: &str = "/opt/nanoscale/tmp/nanoscale.swap";
 const SOURCE_BASE_PATH: &str = "/opt/nanoscale/sites";
@@ -65,7 +67,7 @@ impl BuildSystem {
         {
             AppRuntime::StandaloneNode
         } else {
-            let bun_binary = Self::bun_binary()
+            let bun_binary = bun::bun_binary()
                 .map_err(|error| anyhow::anyhow!("bun runtime resolution failed: {error:#}"))?;
             AppRuntime::BunStart { bun_binary }
         };
@@ -119,7 +121,7 @@ impl BuildSystem {
         let (program, arguments) = Self::parse_command(raw_command)?;
 
         let executable = if program == "bun" {
-            Self::bun_binary()?
+            bun::bun_binary()?
         } else {
             program
         };
@@ -281,37 +283,6 @@ impl BuildSystem {
         privilege_wrapper.run("/usr/sbin/useradd", &["-r", "-s", "/bin/false", &username])?;
 
         Ok(())
-    }
-
-    fn bun_binary() -> Result<String> {
-        if let Ok(configured_binary) = std::env::var("NANOSCALE_BUN_BIN") {
-            let trimmed_binary = configured_binary.trim();
-            if !trimmed_binary.is_empty() {
-                return Ok(trimmed_binary.to_string());
-            }
-        }
-
-        for candidate in ["/usr/bin/bun", "/bin/bun", "/usr/local/bin/bun"] {
-            if Path::new(candidate).is_file() {
-                return Ok(candidate.to_string());
-            }
-        }
-
-        if let Ok(path_value) = std::env::var("PATH") {
-            for path_entry in path_value.split(':') {
-                if path_entry.is_empty() {
-                    continue;
-                }
-
-                let candidate_path = Path::new(path_entry).join("bun");
-                if candidate_path.is_file() {
-                    return Ok(candidate_path.to_string_lossy().to_string());
-                }
-            }
-        }
-
-        let current_path = std::env::var("PATH").unwrap_or_default();
-        bail!("bun binary not found; install bun or set NANOSCALE_BUN_BIN (PATH={current_path})")
     }
 
     fn apply_runtime_env(command: &mut Command) {
