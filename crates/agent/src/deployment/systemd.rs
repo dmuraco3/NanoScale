@@ -13,6 +13,11 @@ const SYSTEMD_TARGET_PATH: &str = "/etc/systemd/system";
 pub struct SystemdGenerator;
 
 impl SystemdGenerator {
+    /// Generates and installs systemd service/socket units for a project and enables the service.
+    ///
+    /// # Errors
+    /// Returns an error if unit files cannot be generated or written, paths are invalid, or
+    /// privileged install/enable commands fail.
     pub fn generate_and_install(
         project_id: &str,
         source_dir: &Path,
@@ -170,5 +175,74 @@ impl SystemdGenerator {
         format!(
             "[Unit]\nDescription=NanoScale app socket ({service_name})\nPartOf={service_name}.service\n\n[Socket]\nListenStream=127.0.0.1:{port}\nNoDelay=true\n\n[Install]\nWantedBy=sockets.target\n"
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::deployment::build::AppRuntime;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    #[test]
+    fn parse_command_rejects_shell_control_characters() {
+        assert!(SystemdGenerator::parse_command("echo hi; rm -rf /").is_err());
+        assert!(SystemdGenerator::parse_command(" ").is_err());
+    }
+
+    #[test]
+    fn resolve_exec_start_defaults_based_on_runtime() {
+        let standalone = SystemdGenerator::resolve_exec_start(
+            "/opt/nanoscale/sites/p1/source",
+            &AppRuntime::StandaloneNode,
+            "",
+            3100,
+        )
+        .expect("exec");
+        assert_eq!(
+            standalone,
+            "/usr/bin/node /opt/nanoscale/sites/p1/source/server.js"
+        );
+
+        let bun = SystemdGenerator::resolve_exec_start(
+            "/opt/nanoscale/sites/p1/source",
+            &AppRuntime::BunStart {
+                bun_binary: "/custom/bun".to_string(),
+            },
+            "",
+            3100,
+        )
+        .expect("exec");
+        assert!(bun.contains("/custom/bun"));
+        assert!(bun.contains("--port 3100"));
+    }
+
+    #[test]
+    fn resolve_exec_start_uses_env_bun_for_explicit_bun_command() {
+        let _guard = env_lock().lock().expect("env lock poisoned");
+        std::env::set_var("NANOSCALE_BUN_BIN", "  /env/bun  ");
+
+        let exec = SystemdGenerator::resolve_exec_start(
+            "/src",
+            &AppRuntime::StandaloneNode,
+            "bun run start",
+            9999,
+        )
+        .expect("exec");
+        assert!(exec.starts_with("/env/bun"));
+        assert!(exec.contains("run start"));
+
+        std::env::remove_var("NANOSCALE_BUN_BIN");
+    }
+
+    #[test]
+    fn socket_template_contains_listen_port() {
+        let template = SystemdGenerator::socket_template("nanoscale-p1", 3100);
+        assert!(template.contains("ListenStream=127.0.0.1:3100"));
     }
 }

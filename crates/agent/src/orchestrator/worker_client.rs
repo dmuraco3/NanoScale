@@ -95,3 +95,26 @@ fn sign_internal_payload(body: &[u8], timestamp: &str, secret_key: &str) -> Resu
     hmac::Mac::update(&mut mac, timestamp.as_bytes());
     Ok(hex::encode(hmac::Mac::finalize(mac).into_bytes()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hmac::Mac;
+
+    #[test]
+    fn sign_internal_payload_matches_reference_hmac() {
+        let body = b"{\"hello\":\"world\"}";
+        let timestamp = "1700000000";
+        let secret = "super-secret";
+
+        let signed = sign_internal_payload(body, timestamp, secret).expect("sign");
+
+        let mut mac =
+            hmac::Hmac::<sha2::Sha256>::new_from_slice(secret.as_bytes()).expect("hmac init");
+        mac.update(body);
+        mac.update(timestamp.as_bytes());
+        let expected = hex::encode(mac.finalize().into_bytes());
+
+        assert_eq!(signed, expected);
+    }
+}

@@ -136,17 +136,7 @@ pub(super) async fn create_project(
         .await
         .map_err(|status| (status, "Authentication required".to_string()))?;
 
-    if payload.name.trim().is_empty()
-        || payload.repo_url.trim().is_empty()
-        || payload.install_command.trim().is_empty()
-        || payload.build_command.trim().is_empty()
-        || payload.run_command.trim().is_empty()
-    {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "Project name, repository URL, install/build/run commands are required".to_string(),
-        ));
-    }
+    validate_create_project_required_fields(&payload)?;
 
     let connection = state
         .db
@@ -270,4 +260,68 @@ pub(super) async fn create_project(
         id: project_id,
         domain: project_domain,
     }))
+}
+
+fn validate_create_project_required_fields(
+    payload: &CreateProjectRequest,
+) -> Result<(), (StatusCode, String)> {
+    if payload.name.trim().is_empty()
+        || payload.repo_url.trim().is_empty()
+        || payload.install_command.trim().is_empty()
+        || payload.build_command.trim().is_empty()
+        || payload.run_command.trim().is_empty()
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Project name, repository URL, install/build/run commands are required".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_create_project_required_fields_rejects_blanks() {
+        let payload = CreateProjectRequest {
+            server_id: "srv".to_string(),
+            name: String::new(),
+            repo_url: "https://example.com/repo.git".to_string(),
+            branch: "main".to_string(),
+            build_command: "bun run build".to_string(),
+            install_command: "bun install".to_string(),
+            run_command: "bun run start".to_string(),
+            output_directory: String::new(),
+            port: None,
+            env_vars: vec![],
+        };
+
+        assert_eq!(
+            validate_create_project_required_fields(&payload)
+                .expect_err("should reject blanks")
+                .0,
+            StatusCode::BAD_REQUEST
+        );
+    }
+
+    #[test]
+    fn validate_create_project_required_fields_accepts_minimal_payload() {
+        let payload = CreateProjectRequest {
+            server_id: "srv".to_string(),
+            name: "My Project".to_string(),
+            repo_url: "https://example.com/repo.git".to_string(),
+            branch: "main".to_string(),
+            build_command: "bun run build".to_string(),
+            install_command: "bun install".to_string(),
+            run_command: "bun run start".to_string(),
+            output_directory: String::new(),
+            port: None,
+            env_vars: vec![],
+        };
+
+        validate_create_project_required_fields(&payload).expect("should be valid");
+    }
 }

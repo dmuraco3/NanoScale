@@ -14,6 +14,10 @@ const PROJECT_TMP_PATH: &str = "/opt/nanoscale/tmp";
 pub struct Teardown;
 
 impl Teardown {
+    /// Deletes systemd units, nginx config, site directories, and the project user.
+    ///
+    /// # Errors
+    /// Returns an error if a required privileged deletion or reload command fails.
     pub fn delete_project(project_id: &str, privilege_wrapper: &PrivilegeWrapper) -> Result<()> {
         let service_name = format!("nanoscale-{project_id}.service");
         let socket_name = format!("nanoscale-{project_id}.socket");
@@ -81,5 +85,29 @@ impl Teardown {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remove_file_if_exists_returns_false_when_missing_without_sudo() {
+        let wrapper = PrivilegeWrapper::new();
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let missing_path = tempdir.path().join("missing.service");
+        let result = Teardown::remove_file_if_exists(&wrapper, &missing_path.to_string_lossy())
+            .expect("remove_file_if_exists");
+        assert!(!result);
+    }
+
+    #[test]
+    fn remove_directory_if_exists_is_noop_when_missing_without_sudo() {
+        let wrapper = PrivilegeWrapper::new();
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let missing_path = tempdir.path().join("missing-dir");
+        Teardown::remove_directory_if_exists(&wrapper, &missing_path.to_string_lossy())
+            .expect("remove_directory_if_exists");
     }
 }

@@ -38,6 +38,11 @@ pub struct BuildOutput {
 }
 
 impl BuildSystem {
+    /// Executes the build pipeline and installs build artifacts into the project sites directory.
+    ///
+    /// # Errors
+    /// Returns an error if swap provisioning fails, build commands fail, build artifacts cannot be
+    /// copied into place, permissions/ownership cannot be applied, or runtime detection fails.
     pub fn execute(
         project_id: &str,
         repo_dir: &Path,
@@ -287,5 +292,79 @@ impl BuildSystem {
 
     fn apply_runtime_env(command: &mut Command) {
         command.env("PATH", RUNTIME_PATH);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_command_splits_program_and_args() {
+        let (program, args) = BuildSystem::parse_command("bun run build").expect("parse");
+        assert_eq!(program, "bun");
+        assert_eq!(args, vec!["run", "build"]);
+    }
+
+    #[test]
+    fn parse_command_rejects_shell_control_characters() {
+        assert!(BuildSystem::parse_command("echo hi; rm -rf /").is_err());
+        assert!(BuildSystem::parse_command("echo hi | cat").is_err());
+        assert!(BuildSystem::parse_command("").is_err());
+    }
+
+    #[test]
+    fn resolve_output_directory_returns_repo_when_empty() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let repo = tempdir.path();
+        let resolved = BuildSystem::resolve_output_directory(repo, "").expect("resolve");
+        assert_eq!(resolved, repo);
+    }
+
+    #[test]
+    fn resolve_output_directory_accepts_existing_subdir() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let repo = tempdir.path();
+        let out = repo.join("dist");
+        std::fs::create_dir_all(&out).expect("mkdir");
+        let resolved = BuildSystem::resolve_output_directory(repo, "dist").expect("resolve");
+        assert_eq!(resolved, out);
+    }
+
+    #[test]
+    fn resolve_output_directory_rejects_missing() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let repo = tempdir.path();
+        assert!(BuildSystem::resolve_output_directory(repo, "nope").is_err());
+    }
+
+    #[test]
+    fn replace_directory_copies_files_and_symlinks() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let source = tempdir.path().join("source");
+        let dest = tempdir.path().join("dest");
+        std::fs::create_dir_all(&source).expect("mkdir source");
+        std::fs::write(source.join("a.txt"), "hello").expect("write");
+
+        let nested = source.join("nested");
+        std::fs::create_dir_all(&nested).expect("mkdir nested");
+        std::fs::write(nested.join("b.txt"), "world").expect("write");
+
+        let link_target = source.join("a.txt");
+        let link_path = source.join("a-link");
+        std::os::unix::fs::symlink(&link_target, &link_path).expect("symlink");
+
+        BuildSystem::replace_directory(&source, &dest).expect("replace");
+        assert_eq!(
+            std::fs::read_to_string(dest.join("a.txt")).expect("read a.txt"),
+            "hello"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dest.join("nested/b.txt")).expect("read nested/b.txt"),
+            "world"
+        );
+
+        let symlink_meta = std::fs::symlink_metadata(dest.join("a-link")).expect("meta");
+        assert!(symlink_meta.file_type().is_symlink());
     }
 }

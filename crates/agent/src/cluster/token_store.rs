@@ -13,6 +13,7 @@ pub struct TokenStore {
 }
 
 impl TokenStore {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -56,7 +57,31 @@ impl TokenStore {
             .retain(|_, expiration| *expiration > now);
     }
 
+    #[must_use]
     pub const fn token_ttl_seconds() -> u64 {
         TOKEN_TTL_SECONDS
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn generate_and_consume_token_is_one_time() {
+        let store = TokenStore::new();
+        let token = store.generate_token().await;
+        assert_eq!(token.len(), 32);
+
+        assert!(store.consume_valid_token(&token).await);
+        assert!(!store.consume_valid_token(&token).await);
+    }
+
+    #[tokio::test]
+    async fn generate_token_produces_distinct_values() {
+        let store = TokenStore::new();
+        let token_a = store.generate_token().await;
+        let token_b = store.generate_token().await;
+        assert_ne!(token_a, token_b);
     }
 }

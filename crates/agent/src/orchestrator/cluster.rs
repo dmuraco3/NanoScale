@@ -53,3 +53,13 @@ pub(super) async fn join_cluster(
 pub(super) async fn verify_signature_guarded() -> StatusCode {
     StatusCode::OK
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn verify_signature_guarded_returns_ok() {
+        assert_eq!(verify_signature_guarded().await, StatusCode::OK);
+    }
+}

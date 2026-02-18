@@ -9,6 +9,14 @@ pub const ACME_WEBROOT_PATH: &str = "/opt/nanoscale/acme";
 pub struct TlsProvisioner;
 
 impl TlsProvisioner {
+    /// .
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if:
+    /// 1) domain is 0-length string
+    /// 2) tls email is 0-length string
+    /// 3) certbot fails to generated a certificate
     pub fn ensure_certificate(
         domain: &str,
         email: &str,
@@ -51,5 +59,18 @@ impl TlsProvisioner {
         fs::create_dir_all(ACME_WEBROOT_PATH)
             .with_context(|| format!("failed to create ACME webroot: {ACME_WEBROOT_PATH}"))?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ensure_certificate_rejects_empty_inputs_before_side_effects() {
+        let wrapper = PrivilegeWrapper::new();
+        assert!(TlsProvisioner::ensure_certificate("", "a@b.com", &wrapper).is_err());
+        assert!(TlsProvisioner::ensure_certificate("example.com", "", &wrapper).is_err());
+        assert!(TlsProvisioner::ensure_certificate("   ", "   ", &wrapper).is_err());
     }
 }

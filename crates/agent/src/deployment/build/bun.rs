@@ -32,3 +32,23 @@ pub(super) fn bun_binary() -> Result<String> {
     let current_path = std::env::var("PATH").unwrap_or_default();
     bail!("bun binary not found; install bun or set NANOSCALE_BUN_BIN (PATH={current_path})")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    #[test]
+    fn bun_binary_prefers_env_override_even_if_nonexistent() {
+        let _guard = env_lock().lock().expect("env lock poisoned");
+        std::env::set_var("NANOSCALE_BUN_BIN", "  /custom/bun  ");
+        let resolved = bun_binary().expect("bun binary resolution");
+        assert_eq!(resolved, "/custom/bun");
+        std::env::remove_var("NANOSCALE_BUN_BIN");
+    }
+}

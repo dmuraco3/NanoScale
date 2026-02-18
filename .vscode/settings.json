@@ -5,7 +5,8 @@
     "bun": true,
     "cargo check": true,
     "cargo tree": true,
-    "true": true
+    "true": true,
+    "cargo test": true
   },
   "rust-analyzer.checkOnSave": true,
   "rust-analyzer.check.overrideCommand": [

@@ -17,6 +17,14 @@ use crate::system::PrivilegeWrapper;
 use super::api_types::{InternalProjectResponse, WorkerCreateProjectRequest};
 use super::OrchestratorState;
 
+fn repo_paths(project_id: &str) -> (PathBuf, PathBuf) {
+    let repo_dir = PathBuf::from(format!("/opt/nanoscale/tmp/{project_id}/source"));
+    let parent_dir = repo_dir
+        .parent()
+        .map_or_else(|| PathBuf::from("/opt/nanoscale/tmp"), PathBuf::from);
+    (repo_dir, parent_dir)
+}
+
 #[allow(clippy::too_many_lines)]
 pub(super) async fn internal_projects(
     State(state): State<OrchestratorState>,
@@ -38,10 +46,7 @@ pub(super) async fn internal_projects(
         .map(|env_var| (env_var.key, env_var.value))
         .collect::<Vec<(String, String)>>();
 
-    let repo_dir = PathBuf::from(format!("/opt/nanoscale/tmp/{project_id}/source"));
-    let parent_dir = repo_dir
-        .parent()
-        .map_or_else(|| PathBuf::from("/opt/nanoscale/tmp"), PathBuf::from);
+    let (repo_dir, parent_dir) = repo_paths(&project_id);
 
     let repo_url_for_clone = repo_url.clone();
     let branch_for_checkout = branch.clone();
@@ -213,5 +218,21 @@ pub(super) async fn internal_delete_project(
                 message: format!("Project cleanup task failed: {error:#}"),
             }),
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repo_paths_build_expected_paths() {
+        let (repo_dir, parent_dir) = repo_paths("p1");
+        assert!(repo_dir
+            .to_string_lossy()
+            .ends_with("/opt/nanoscale/tmp/p1/source"));
+        assert!(parent_dir
+            .to_string_lossy()
+            .ends_with("/opt/nanoscale/tmp/p1"));
     }
 }

@@ -20,6 +20,11 @@ pub enum NginxTlsMode<'a> {
 }
 
 impl NginxGenerator {
+    /// Generates an nginx site config and installs it into `sites-enabled`, then reloads nginx.
+    ///
+    /// # Errors
+    /// Returns an error if the config cannot be written, the temp path is invalid, or privileged
+    /// install/reload commands fail.
     pub fn generate_and_install(
         project_id: &str,
         port: u16,
@@ -84,5 +89,46 @@ impl NginxGenerator {
         format!(
             "server {{\n    listen 80;\n    server_name {server_name};\n\n    location ^~ /.well-known/acme-challenge/ {{\n        root {ACME_WEBROOT_PATH};\n    }}\n\n    location / {{\n        return 301 https://$host$request_uri;\n    }}\n}}\n\nserver {{\n    listen 443 ssl;\n    server_name {server_name};\n\n    ssl_certificate {cert_path};\n    ssl_certificate_key {key_path};\n\n    location / {{\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n        proxy_pass http://127.0.0.1:{port};\n    }}\n}}\n"
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn server_name_includes_domain_and_fallback() {
+        let name = NginxGenerator::server_name(
+            "123e4567-e89b-12d3-a456-426614174000",
+            Some("app.example.com"),
+        );
+        assert!(name.contains("app.example.com"));
+        assert!(name.contains("ns-"));
+        assert!(name.contains(".local"));
+    }
+
+    #[test]
+    fn server_name_falls_back_when_domain_missing_or_blank() {
+        let missing = NginxGenerator::server_name("p1", None);
+        let blank = NginxGenerator::server_name("p1", Some("   "));
+        assert_eq!(missing, blank);
+        assert!(std::path::Path::new(&missing)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("local")));
+    }
+
+    #[test]
+    fn http_template_contains_acme_root_and_proxy_pass() {
+        let template = NginxGenerator::nginx_http_template("example", 3100);
+        assert!(template.contains(ACME_WEBROOT_PATH));
+        assert!(template.contains("proxy_pass http://127.0.0.1:3100"));
+    }
+
+    #[test]
+    fn https_template_contains_cert_paths_and_redirect() {
+        let template = NginxGenerator::nginx_https_template("example", "app.example.com", 3100);
+        assert!(template.contains("/etc/letsencrypt/live/app.example.com/fullchain.pem"));
+        assert!(template.contains("return 301 https://$host$request_uri"));
+        assert!(template.contains("proxy_pass http://127.0.0.1:3100"));
     }
 }

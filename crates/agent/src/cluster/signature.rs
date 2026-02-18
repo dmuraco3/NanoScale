@@ -15,6 +15,16 @@ const MAX_TIMESTAMP_AGE_SECONDS: i64 = 30;
 
 type HmacSha256 = Hmac<Sha256>;
 
+/// .
+///
+/// # Errors
+///
+/// This function will return an error if:
+/// 1) body cannot be parsed into bytes
+/// 2) server secret cannot be found
+/// 3) signature cannot be decoded
+/// 4) server secret cannot be converted into HMAC hash
+/// 5) cluster signature cannot be verified
 pub async fn verify_cluster_signature(
     State(state): State<OrchestratorState>,
     request: Request,
@@ -78,4 +88,44 @@ fn validate_timestamp(timestamp: &str) -> Result<(), StatusCode> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+
+    #[test]
+    fn header_value_missing_is_unauthorized() {
+        let request = Request::builder()
+            .uri("/")
+            .body(Body::empty())
+            .expect("request");
+        let result = header_value(&request, "X-Does-Not-Exist");
+        assert_eq!(result, Err(StatusCode::UNAUTHORIZED));
+    }
+
+    #[test]
+    fn validate_timestamp_accepts_recent() {
+        let now_seconds = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_secs();
+        let recent = i64::try_from(now_seconds).expect("i64") - 1;
+        validate_timestamp(&recent.to_string()).expect("recent timestamp should be valid");
+    }
+
+    #[test]
+    fn validate_timestamp_rejects_too_old() {
+        let now_seconds = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_secs();
+        let old = i64::try_from(now_seconds).expect("i64") - (MAX_TIMESTAMP_AGE_SECONDS + 5);
+        assert_eq!(
+            validate_timestamp(&old.to_string()),
+            Err(StatusCode::UNAUTHORIZED)
+        );
+    }
 }

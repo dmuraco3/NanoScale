@@ -33,3 +33,21 @@ fn map_server_record(server: ServerRecord) -> ServerListItem {
         ram_usage_percent: 0,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn map_server_record_sets_ram_usage_placeholder() {
+        let record = ServerRecord {
+            id: "srv".to_string(),
+            name: "name".to_string(),
+            ip_address: "127.0.0.1".to_string(),
+            status: "online".to_string(),
+        };
+        let mapped = map_server_record(record);
+        assert_eq!(mapped.ram_usage_percent, 0);
+        assert_eq!(mapped.status, "online");
+    }
+}

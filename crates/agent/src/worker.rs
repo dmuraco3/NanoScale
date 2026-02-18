@@ -14,8 +14,16 @@ use crate::system::PrivilegeWrapper;
 mod api_types;
 mod handlers;
 
+#[cfg(test)]
+mod tests;
+
 use api_types::WorkerState;
 
+/// Starts the worker internal API and joins the cluster using `join_token`.
+///
+/// # Errors
+/// Returns an error if configuration loading fails, joining the cluster fails, binding the
+/// listener fails, or the HTTP server terminates with an error.
 pub async fn run(join_token: &str) -> Result<()> {
     let privilege_wrapper = PrivilegeWrapper::new();
 

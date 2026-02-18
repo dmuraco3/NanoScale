@@ -104,3 +104,21 @@ pub(super) struct InternalProjectResponse {
     pub(super) status: &'static str,
     pub(super) message: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn project_env_var_serde_roundtrip() {
+        let value = ProjectEnvVar {
+            key: "KEY".to_string(),
+            value: "VALUE".to_string(),
+        };
+
+        let json = serde_json::to_string(&value).expect("serialize");
+        let decoded = serde_json::from_str::<ProjectEnvVar>(&json).expect("deserialize");
+        assert_eq!(decoded.key, "KEY");
+        assert_eq!(decoded.value, "VALUE");
+    }
+}

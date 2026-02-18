@@ -196,3 +196,72 @@ fn has_conf_extension(path: &str) -> bool {
         .extension()
         .is_some_and(|ext| ext.eq_ignore_ascii_case("conf"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_systemctl_allows_expected_patterns() {
+        validate_command_args(SYSTEMCTL_BIN, &["daemon-reload"]).expect("daemon-reload");
+        validate_command_args(SYSTEMCTL_BIN, &["enable", "--now", "nanoscale-p1.service"])
+            .expect("enable service");
+        validate_command_args(SYSTEMCTL_BIN, &["status", "nanoscale-agent"]).expect("status");
+        validate_command_args(
+            SYSTEMCTL_BIN,
+            &[
+                "show",
+                "--property=ActiveEnterTimestampMonotonic",
+                "--value",
+                "nanoscale-p1.service",
+            ],
+        )
+        .expect("show --value");
+    }
+
+    #[test]
+    fn validate_systemctl_rejects_other_args() {
+        assert!(validate_command_args(SYSTEMCTL_BIN, &["isolate", "rescue"]).is_err());
+        assert!(validate_command_args(SYSTEMCTL_BIN, &["restart", "ssh"]).is_err());
+    }
+
+    #[test]
+    fn validate_mv_and_rm_allow_only_expected_paths() {
+        validate_command_args(
+            MV_BIN,
+            &[
+                "/opt/nanoscale/tmp/nanoscale-p1.service",
+                "/etc/systemd/system/nanoscale-p1.service",
+            ],
+        )
+        .expect("mv service");
+
+        validate_command_args(
+            MV_BIN,
+            &[
+                "/opt/nanoscale/tmp/nanoscale-p1.enabled.conf",
+                "/etc/nginx/sites-enabled/nanoscale-p1.conf",
+            ],
+        )
+        .expect("mv nginx conf");
+
+        validate_command_args(RM_BIN, &["-f", "/etc/systemd/system/nanoscale-p1.service"])
+            .expect("rm service");
+
+        assert!(validate_command_args(RM_BIN, &["-rf", "/etc/"]).is_err());
+        assert!(validate_command_args(MV_BIN, &["/tmp/a", "/etc/passwd"]).is_err());
+    }
+
+    #[test]
+    fn has_conf_extension_checks_case_insensitively() {
+        assert!(has_conf_extension(
+            "/etc/nginx/sites-enabled/nanoscale-x.conf"
+        ));
+        assert!(has_conf_extension(
+            "/etc/nginx/sites-enabled/nanoscale-x.CONF"
+        ));
+        assert!(!has_conf_extension(
+            "/etc/nginx/sites-enabled/nanoscale-x.txt"
+        ));
+    }
+}

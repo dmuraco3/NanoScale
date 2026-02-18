@@ -111,3 +111,41 @@ fn truncate_dns_label(label: &str) -> String {
         truncated
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slugify_project_name_produces_dnsish_label() {
+        assert_eq!(slugify_project_name("My App").expect("slug"), "my-app");
+        assert_eq!(
+            slugify_project_name("Hello__World!!").expect("slug"),
+            "hello-world"
+        );
+        assert!(slugify_project_name("----").is_err());
+        assert!(slugify_project_name("   ").is_err());
+    }
+
+    #[test]
+    fn truncate_dns_label_limits_length_and_avoids_trailing_dash() {
+        let long = "a".repeat(80);
+        let truncated = truncate_dns_label(&long);
+        assert_eq!(truncated.len(), 63);
+
+        let ends_with_dash = format!("{}-", "a".repeat(80));
+        let truncated = truncate_dns_label(&ends_with_dash);
+        assert!(truncated.len() <= 63);
+        assert!(!truncated.ends_with('-'));
+    }
+
+    #[test]
+    fn trim_label_for_suffix_keeps_space_for_suffix() {
+        let label = "a".repeat(63);
+        let trimmed = trim_label_for_suffix(&label, 6);
+        assert!(trimmed.len() <= 63 - (6 + 1));
+
+        let trimmed = trim_label_for_suffix("-", 10);
+        assert_eq!(trimmed, "project");
+    }
+}

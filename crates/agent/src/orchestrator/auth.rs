@@ -30,9 +30,7 @@ pub(super) async fn auth_setup(
         return Err(StatusCode::CONFLICT);
     }
 
-    if payload.username.trim().is_empty() || payload.password.len() < 8 {
-        return Err(StatusCode::BAD_REQUEST);
-    }
+    validate_setup_credentials(&payload.username, &payload.password)?;
 
     let user_id = Uuid::new_v4().to_string();
     let salt = SaltString::generate(&mut OsRng);
@@ -59,6 +57,14 @@ pub(super) async fn auth_setup(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(StatusCode::CREATED)
+}
+
+fn validate_setup_credentials(username: &str, password: &str) -> Result<(), StatusCode> {
+    if username.trim().is_empty() || password.len() < 8 {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    Ok(())
 }
 
 pub(super) async fn auth_login(
@@ -127,4 +133,22 @@ pub(super) async fn require_authenticated(session: &Session) -> Result<(), Statu
     }
 
     Err(StatusCode::UNAUTHORIZED)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_setup_credentials_enforces_nonempty_username_and_min_password_len() {
+        assert_eq!(
+            validate_setup_credentials("", "password"),
+            Err(StatusCode::BAD_REQUEST)
+        );
+        assert_eq!(
+            validate_setup_credentials("admin", "short"),
+            Err(StatusCode::BAD_REQUEST)
+        );
+        validate_setup_credentials(" admin ", "password").expect("valid credentials");
+    }
 }

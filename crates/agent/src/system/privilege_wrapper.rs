@@ -22,7 +22,14 @@ pub struct PrivilegeWrapper {
 mod certbot;
 mod validators;
 
+impl Default for PrivilegeWrapper {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PrivilegeWrapper {
+    #[must_use]
     pub fn new() -> Self {
         let allowed_binaries = HashSet::from([
             SYSTEMCTL_BIN,
@@ -39,6 +46,11 @@ impl PrivilegeWrapper {
         Self { allowed_binaries }
     }
 
+    /// Runs an allowlisted command via `sudo -n`.
+    ///
+    /// # Errors
+    /// Returns an error if `binary_path` is not allowlisted, the arguments fail validation,
+    /// the command cannot be executed, or the command exits unsuccessfully.
     pub fn run(&self, binary_path: &str, args: &[&str]) -> Result<Output> {
         if !self.allowed_binaries.contains(binary_path) {
             return Err(anyhow!("binary path is not allowed: {binary_path}"));
@@ -61,5 +73,31 @@ impl PrivilegeWrapper {
         }
 
         Ok(output)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn run_rejects_disallowed_binary_paths() {
+        let wrapper = PrivilegeWrapper::new();
+        let error = wrapper
+            .run("/bin/echo", &["hello"]) // not in allowlist
+            .expect_err("should reject");
+        let message = format!("{error:#}");
+        assert!(message.contains("binary path is not allowed"));
+    }
+
+    #[test]
+    fn run_rejects_invalid_args_before_attempting_sudo() {
+        let wrapper = PrivilegeWrapper::new();
+        // /usr/bin/systemctl is allowed, but args should be rejected by the validator.
+        let error = wrapper
+            .run("/usr/bin/systemctl", &["definitely-not-allowed"])
+            .expect_err("should reject invalid args");
+        let message = format!("{error:#}");
+        assert!(message.contains("systemctl arguments are not allowed"));
     }
 }

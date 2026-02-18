@@ -1,13 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, ValueEnum};
 
-mod cluster;
-mod config;
-mod db;
-mod deployment;
-mod orchestrator;
-mod system;
-mod worker;
+use agent::{orchestrator, worker};
 
 #[derive(Debug, Parser)]
 #[command(name = "agent")]
@@ -40,4 +34,23 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cli_parses_orchestrator_role() {
+        let cli = Cli::try_parse_from(["agent", "--role", "orchestrator"]).expect("parse");
+        assert!(matches!(cli.role, Some(Role::Orchestrator)));
+        assert!(cli.join.is_none());
+    }
+
+    #[test]
+    fn cli_parses_join_token() {
+        let cli = Cli::try_parse_from(["agent", "--join", "abc"]).expect("parse");
+        assert!(cli.role.is_none());
+        assert_eq!(cli.join.as_deref(), Some("abc"));
+    }
 }

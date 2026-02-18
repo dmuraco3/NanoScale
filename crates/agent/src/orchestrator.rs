@@ -26,6 +26,9 @@ mod projects;
 mod servers;
 mod worker_client;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Debug, Clone)]
 pub struct OrchestratorState {
     pub db: DbClient,
@@ -36,6 +39,11 @@ pub struct OrchestratorState {
     pub tls_email: Option<String>,
 }
 
+/// .
+///
+/// # Errors
+///
+/// This function will return an error if setting up and running the orchestrator server process fails.
 pub async fn run() -> Result<()> {
     let config = NanoScaleConfig::load()?;
     let database_path = config.database_path();

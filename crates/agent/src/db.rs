@@ -9,6 +9,9 @@ mod servers;
 mod types;
 mod users;
 
+#[cfg(test)]
+mod tests;
+
 pub use types::{
     NewProject, NewServer, NewUser, ProjectDetailsRecord, ProjectListRecord, ServerConnectionInfo,
     ServerRecord, UserRecord,
@@ -22,10 +25,15 @@ pub struct DbClient {
 }
 
 impl DbClient {
+    #[must_use]
     pub const fn min_project_port() -> i64 {
         BASE_PROJECT_PORT
     }
 
+    /// Connects to a `SQLite` database at `database_url`.
+    ///
+    /// # Errors
+    /// Returns an error if the database cannot be opened or the connection pool cannot be created.
     pub async fn connect(database_url: &str) -> Result<Self> {
         let connect_options = SqliteConnectOptions::new()
             .filename(database_url)
@@ -42,6 +50,10 @@ impl DbClient {
         Ok(Self { pool })
     }
 
+    /// Ensures the database directory exists, connects, runs migrations, and enables WAL mode.
+    ///
+    /// # Errors
+    /// Returns an error if creating directories, connecting, migrating, or enabling WAL mode fails.
     pub async fn initialize(database_path: &str) -> Result<Self> {
         if let Some(parent_dir) = Path::new(database_path).parent() {
             std::fs::create_dir_all(parent_dir)?;
@@ -54,11 +66,19 @@ impl DbClient {
         Ok(db)
     }
 
+    /// Runs SQL migrations from `crates/agent/migrations`.
+    ///
+    /// # Errors
+    /// Returns an error if applying migrations fails.
     pub async fn run_migrations(&self) -> Result<()> {
         sqlx::migrate!("./migrations").run(&self.pool).await?;
         Ok(())
     }
 
+    /// Ensures `SQLite` is operating in WAL mode.
+    ///
+    /// # Errors
+    /// Returns an error if the PRAGMA query fails or WAL mode could not be enabled.
     pub async fn ensure_wal_mode(&self) -> Result<()> {
         let journal_mode: String = sqlx::query_scalar("PRAGMA journal_mode=WAL;")
             .fetch_one(&self.pool)
@@ -71,6 +91,7 @@ impl DbClient {
         Ok(())
     }
 
+    #[must_use]
     pub fn pool(&self) -> Pool<Sqlite> {
         self.pool.clone()
     }

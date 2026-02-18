@@ -3,6 +3,10 @@ use anyhow::Result;
 use super::{DbClient, NewServer, ServerConnectionInfo, ServerRecord};
 
 impl DbClient {
+    /// Inserts a new server record.
+    ///
+    /// # Errors
+    /// Returns an error if the insert fails.
     pub async fn insert_server(&self, server: &NewServer) -> Result<()> {
         sqlx::query(
             "INSERT INTO servers (id, name, ip_address, status, secret_key) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -18,6 +22,10 @@ impl DbClient {
         Ok(())
     }
 
+    /// Inserts or updates a server record.
+    ///
+    /// # Errors
+    /// Returns an error if the upsert fails.
     pub async fn upsert_server(&self, server: &NewServer) -> Result<()> {
         sqlx::query(
             "INSERT INTO servers (id, name, ip_address, status, secret_key) VALUES (?1, ?2, ?3, ?4, ?5)
@@ -38,6 +46,10 @@ impl DbClient {
         Ok(())
     }
 
+    /// Returns a server's secret key.
+    ///
+    /// # Errors
+    /// Returns an error if the query fails.
     pub async fn get_server_secret(&self, server_id: &str) -> Result<Option<String>> {
         let secret =
             sqlx::query_scalar::<_, String>("SELECT secret_key FROM servers WHERE id = ?1")
@@ -48,6 +60,10 @@ impl DbClient {
         Ok(secret)
     }
 
+    /// Lists servers in reverse creation order.
+    ///
+    /// # Errors
+    /// Returns an error if the query fails.
     pub async fn list_servers(&self) -> Result<Vec<ServerRecord>> {
         let rows = sqlx::query_as::<_, (String, String, String, String)>(
             "SELECT id, name, ip_address, status FROM servers ORDER BY created_at DESC",
@@ -66,6 +82,10 @@ impl DbClient {
             .collect())
     }
 
+    /// Fetches connection info for a server (including secret key).
+    ///
+    /// # Errors
+    /// Returns an error if the query fails.
     pub async fn get_server_connection_info(
         &self,
         server_id: &str,

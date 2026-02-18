@@ -133,3 +133,13 @@ fn read_uptime_seconds() -> Option<u64> {
     let whole_seconds = seconds_string.split('.').next()?;
     whole_seconds.parse::<u64>().ok()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_uptime_seconds_is_non_panicking() {
+        let _ = read_uptime_seconds();
+    }
+}

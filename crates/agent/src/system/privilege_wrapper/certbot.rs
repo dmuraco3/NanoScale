@@ -109,3 +109,70 @@ fn validate_certbot_certonly_webroot_args(args: &[&str]) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_certbot_args_allows_nginx_mode() {
+        validate_certbot_args(&["--nginx", "-v"]).expect("--nginx with extra args allowed");
+    }
+
+    #[test]
+    fn validate_certbot_args_allows_webroot_certonly_with_required_flags() {
+        let args = [
+            "certonly",
+            "--webroot",
+            "-w",
+            "/opt/nanoscale/acme",
+            "-d",
+            "app.example.com",
+            "--non-interactive",
+            "--agree-tos",
+            "--keep-until-expiring",
+            "--email",
+            "ops@example.com",
+        ];
+        validate_certbot_args(&args).expect("certonly webroot args allowed");
+    }
+
+    #[test]
+    fn validate_certbot_args_rejects_missing_required_flags() {
+        let args = ["certonly", "--webroot", "-w", "/opt/nanoscale/acme"];
+        assert!(validate_certbot_args(&args).is_err());
+    }
+
+    #[test]
+    fn validate_certbot_args_rejects_bad_domain_or_email() {
+        let args = [
+            "certonly",
+            "--webroot",
+            "-w",
+            "/opt/nanoscale/acme",
+            "-d",
+            "not-a-domain",
+            "--non-interactive",
+            "--agree-tos",
+            "--keep-until-expiring",
+            "--email",
+            "ops@example.com",
+        ];
+        assert!(validate_certbot_args(&args).is_err());
+
+        let args = [
+            "certonly",
+            "--webroot",
+            "-w",
+            "/opt/nanoscale/acme",
+            "-d",
+            "app.example.com",
+            "--non-interactive",
+            "--agree-tos",
+            "--keep-until-expiring",
+            "--email",
+            "not-an-email",
+        ];
+        assert!(validate_certbot_args(&args).is_err());
+    }
+}
