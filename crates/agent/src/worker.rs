@@ -118,7 +118,7 @@ pub async fn run(join_token: &str) -> Result<()> {
         .route("/internal/health", post(internal_health))
         .route("/internal/deploy", post(internal_deploy))
         .route("/internal/projects", post(internal_projects))
-        .route("/internal/projects/{id}", delete(internal_delete_project))
+        .route("/internal/projects/:id", delete(internal_delete_project))
         .with_state(worker_state);
 
     let listener = tokio::net::TcpListener::bind(&worker_bind).await?;

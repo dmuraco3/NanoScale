@@ -192,7 +192,7 @@ pub async fn run() -> Result<()> {
 
     let internal_router = Router::new()
         .route("/projects", post(internal_projects))
-        .route("/projects/{id}", delete(internal_delete_project))
+        .route("/projects/:id", delete(internal_delete_project))
         .route("/verify-signature", post(verify_signature_guarded))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -206,7 +206,6 @@ pub async fn run() -> Result<()> {
         .route("/api/auth/session", post(auth_session))
         .route("/api/servers", get(list_servers))
         .route("/api/projects", get(list_projects).post(create_project))
-        .route("/api/projects/{id}", get(get_project).delete(delete_project))
         .route("/api/projects/:id", get(get_project).delete(delete_project))
         .route("/api/cluster/generate-token", post(generate_cluster_token))
         .route("/api/cluster/join", post(join_cluster))
