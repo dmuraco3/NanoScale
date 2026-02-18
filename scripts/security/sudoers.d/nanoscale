@@ -13,6 +13,9 @@ nanoscale ALL=(root) NOPASSWD: /usr/bin/chown
 # Allow installing generated systemd unit files
 nanoscale ALL=(root) NOPASSWD: /usr/bin/mv
 
+# Allow deleting generated systemd/nginx files and project directories
+nanoscale ALL=(root) NOPASSWD: /usr/bin/rm
+
 # Allow swap file allocation on low-memory hosts
 nanoscale ALL=(root) NOPASSWD: /usr/bin/fallocate
 

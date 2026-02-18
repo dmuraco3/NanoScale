@@ -604,7 +604,7 @@ async fn delete_project(
         .await
         .map_err(|status| (status, "Authentication required".to_string()))?;
 
-    let existing_project = state
+    let project = state
         .db
         .get_project_by_id(&project_id)
         .await
@@ -613,10 +613,42 @@ async fn delete_project(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Unable to load project: {error}"),
             )
-        })?;
+        })?
+        .ok_or((StatusCode::NOT_FOUND, "Project not found".to_string()))?;
 
-    if existing_project.is_none() {
-        return Err((StatusCode::NOT_FOUND, "Project not found".to_string()));
+    let connection = state
+        .db
+        .get_server_connection_info(&project.server_id)
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Unable to load server connection info: {error}"),
+            )
+        })?
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            "Project host server was not found".to_string(),
+        ))?;
+
+    let worker_host = if connection.id == state.local_server_id {
+        "127.0.0.1"
+    } else {
+        &connection.ip_address
+    };
+
+    if let Err(error) = call_worker_delete_project(
+        &connection.id,
+        worker_host,
+        &connection.secret_key,
+        &project_id,
+    )
+    .await
+    {
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            format!("Worker cleanup call failed: {error}"),
+        ));
     }
 
     state.db.delete_project_by_id(&project_id).await.map_err(|error| {
@@ -813,6 +845,38 @@ async fn call_worker_create_project(
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         anyhow::bail!("internal projects endpoint returned {status}: {body}");
+    }
+
+    Ok(())
+}
+
+async fn call_worker_delete_project(
+    server_id: &str,
+    worker_host: &str,
+    secret_key: &str,
+    project_id: &str,
+) -> Result<(), anyhow::Error> {
+    let body: [u8; 0] = [];
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)?
+        .as_secs()
+        .to_string();
+
+    let signature = sign_internal_payload(&body, &timestamp, secret_key)?;
+    let url = format!("http://{worker_host}:4000/internal/projects/{project_id}");
+
+    let response = reqwest::Client::new()
+        .delete(url)
+        .header("X-Cluster-Timestamp", timestamp)
+        .header("X-Cluster-Signature", signature)
+        .header("X-Server-Id", server_id)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        anyhow::bail!("internal delete projects endpoint returned {status}: {body}");
     }
 
     Ok(())

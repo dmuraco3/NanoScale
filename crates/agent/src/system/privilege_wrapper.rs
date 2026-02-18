@@ -10,6 +10,7 @@ const USERADD_BIN: &str = "/usr/sbin/useradd";
 const USERDEL_BIN: &str = "/usr/sbin/userdel";
 const CERTBOT_BIN: &str = "/usr/bin/certbot";
 const MV_BIN: &str = "/usr/bin/mv";
+const RM_BIN: &str = "/usr/bin/rm";
 const CHOWN_BIN: &str = "/usr/bin/chown";
 const FALLOCATE_BIN: &str = "/usr/bin/fallocate";
 
@@ -27,6 +28,7 @@ impl PrivilegeWrapper {
             USERDEL_BIN,
             CERTBOT_BIN,
             MV_BIN,
+            RM_BIN,
             CHOWN_BIN,
             FALLOCATE_BIN,
         ]);
@@ -66,6 +68,7 @@ impl PrivilegeWrapper {
             USERDEL_BIN => self.validate_userdel_args(args),
             CERTBOT_BIN => self.validate_certbot_args(args),
             MV_BIN => self.validate_mv_args(args),
+            RM_BIN => self.validate_rm_args(args),
             CHOWN_BIN => self.validate_chown_args(args),
             FALLOCATE_BIN => self.validate_fallocate_args(args),
             _ => Err(anyhow!("unsupported binary path: {binary_path}")),
@@ -78,7 +81,7 @@ impl PrivilegeWrapper {
         }
 
         if args.len() == 3
-            && args[0] == "enable"
+            && matches!(args[0], "enable" | "disable")
             && args[1] == "--now"
             && args[2].starts_with("nanoscale-")
             && args[2].ends_with(".service")
@@ -205,6 +208,41 @@ impl PrivilegeWrapper {
         }
 
         Err(anyhow!("chown arguments are not allowed: {args:?}"))
+    }
+
+    fn validate_rm_args(&self, args: &[&str]) -> Result<()> {
+        if args.len() != 2 {
+            return Err(anyhow!("rm requires exactly two arguments"));
+        }
+
+        let flag = args[0];
+        let target = args[1];
+
+        if flag == "-f" && self.rm_file_target_allowed(target) {
+            return Ok(());
+        }
+
+        if flag == "-rf" && self.rm_directory_target_allowed(target) {
+            return Ok(());
+        }
+
+        Err(anyhow!("rm arguments are not allowed: {args:?}"))
+    }
+
+    fn rm_file_target_allowed(&self, target: &str) -> bool {
+        (target.starts_with("/etc/systemd/system/nanoscale-")
+            && (target.ends_with(".service") || target.ends_with(".socket")))
+            || (target.starts_with("/etc/systemd/system/multi-user.target.wants/nanoscale-")
+                && target.ends_with(".service"))
+            || (target.starts_with("/etc/systemd/system/sockets.target.wants/nanoscale-")
+                && target.ends_with(".socket"))
+            || (target.starts_with("/etc/nginx/sites-enabled/nanoscale-")
+                && target.ends_with(".conf"))
+    }
+
+    fn rm_directory_target_allowed(&self, target: &str) -> bool {
+        (target.starts_with("/opt/nanoscale/sites/") || target.starts_with("/opt/nanoscale/tmp/"))
+            && !target.contains("..")
     }
 
     fn validate_fallocate_args(&self, args: &[&str]) -> Result<()> {

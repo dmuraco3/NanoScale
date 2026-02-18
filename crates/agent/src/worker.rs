@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
-use axum::extract::State;
+use axum::extract::{Path as AxumPath, State};
 use axum::http::StatusCode;
-use axum::routing::post;
+use axum::routing::{delete, post};
 use axum::{Json, Router};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
@@ -17,6 +17,7 @@ use crate::deployment::git::Git;
 use crate::deployment::inactivity_monitor::{InactivityMonitor, MonitoredProject};
 use crate::deployment::nginx::NginxGenerator;
 use crate::deployment::systemd::SystemdGenerator;
+use crate::deployment::teardown::Teardown;
 use crate::system::PrivilegeWrapper;
 
 const DEFAULT_ORCHESTRATOR_URL: &str = "http://127.0.0.1:4000";
@@ -117,6 +118,7 @@ pub async fn run(join_token: &str) -> Result<()> {
         .route("/internal/health", post(internal_health))
         .route("/internal/deploy", post(internal_deploy))
         .route("/internal/projects", post(internal_projects))
+        .route("/internal/projects/{id}", delete(internal_delete_project))
         .with_state(worker_state);
 
     let listener = tokio::net::TcpListener::bind(&worker_bind).await?;
@@ -147,6 +149,48 @@ async fn internal_deploy() -> (StatusCode, Json<DeployPlaceholderResponse>) {
                 .to_string(),
         }),
     )
+}
+
+async fn internal_delete_project(
+    State(state): State<WorkerState>,
+    AxumPath(project_id): AxumPath<String>,
+) -> (StatusCode, Json<CreateProjectPlaceholderResponse>) {
+    let project_id_for_cleanup = project_id.clone();
+    let delete_result = tokio::task::spawn_blocking(move || {
+        let privilege_wrapper = PrivilegeWrapper::new();
+        Teardown::delete_project(&project_id_for_cleanup, &privilege_wrapper)
+    })
+    .await;
+
+    match delete_result {
+        Ok(Ok(())) => {
+            let mut monitored_projects = state.monitored_projects.write().await;
+            monitored_projects
+                .retain(|project| project.service_name != format!("nanoscale-{project_id}.service"));
+
+            (
+                StatusCode::NO_CONTENT,
+                Json(CreateProjectPlaceholderResponse {
+                    status: "accepted",
+                    message: "Project resources deleted".to_string(),
+                }),
+            )
+        }
+        Ok(Err(error)) => (
+            StatusCode::BAD_REQUEST,
+            Json(CreateProjectPlaceholderResponse {
+                status: "error",
+                message: format!("Project cleanup failed: {error:#}"),
+            }),
+        ),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(CreateProjectPlaceholderResponse {
+                status: "error",
+                message: format!("Project cleanup task failed: {error:#}"),
+            }),
+        ),
+    }
 }
 
 #[allow(clippy::too_many_lines)]
