@@ -23,9 +23,9 @@ use uuid::Uuid;
 use crate::cluster::protocol::{GenerateTokenResponse, JoinClusterRequest, JoinClusterResponse};
 use crate::cluster::signature::verify_cluster_signature;
 use crate::cluster::token_store::TokenStore;
+use crate::config::NanoScaleConfig;
 use crate::db::{
-    DbClient, NewProject, NewServer, NewUser, ProjectDetailsRecord, ProjectListRecord,
-    ServerRecord,
+    DbClient, NewProject, NewServer, NewUser, ProjectDetailsRecord, ProjectListRecord, ServerRecord,
 };
 use crate::deployment::build::{BuildSettings, BuildSystem};
 use crate::deployment::git::Git;
@@ -35,11 +35,6 @@ use crate::deployment::systemd::SystemdGenerator;
 use crate::deployment::teardown::Teardown;
 use crate::system::PrivilegeWrapper;
 
-const DEFAULT_DB_PATH: &str = "/opt/nanoscale/data/nanoscale.db";
-const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:4000";
-const DEFAULT_LOCAL_SERVER_ID: &str = "orchestrator-local";
-const DEFAULT_LOCAL_SERVER_NAME: &str = "orchestrator";
-const DEFAULT_LOCAL_SERVER_IP: &str = "127.0.0.1";
 const SESSION_USER_ID_KEY: &str = "user_id";
 
 #[derive(Debug, Clone)]
@@ -48,6 +43,7 @@ pub struct OrchestratorState {
     pub token_store: Arc<TokenStore>,
     pub monitored_projects: Arc<RwLock<Vec<MonitoredProject>>>,
     pub local_server_id: String,
+    pub base_domain: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -100,6 +96,7 @@ struct CreateProjectRequest {
 #[derive(Debug, Serialize)]
 struct CreateProjectResponse {
     id: String,
+    domain: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -110,6 +107,7 @@ struct ProjectListItem {
     branch: String,
     run_command: String,
     port: i64,
+    domain: Option<String>,
     status: String,
     created_at: String,
 }
@@ -127,6 +125,7 @@ struct ProjectDetailsResponse {
     run_command: String,
     status: String,
     port: i64,
+    domain: Option<String>,
     created_at: String,
 }
 
@@ -141,6 +140,7 @@ struct WorkerCreateProjectRequest {
     run_command: String,
     output_directory: String,
     port: u16,
+    domain: Option<String>,
     env_vars: Vec<ProjectEnvVar>,
 }
 
@@ -151,18 +151,19 @@ struct InternalProjectResponse {
 }
 
 pub async fn run() -> Result<()> {
-    let database_path =
-        std::env::var("NANOSCALE_DB_PATH").unwrap_or_else(|_| DEFAULT_DB_PATH.to_string());
-    let bind_address = std::env::var("NANOSCALE_ORCHESTRATOR_BIND")
-        .unwrap_or_else(|_| DEFAULT_BIND_ADDRESS.to_string());
+    let config = NanoScaleConfig::load()?;
+    let database_path = config.database_path();
+    let bind_address = config.orchestrator_bind_address();
     let db_client = DbClient::initialize(&database_path).await?;
 
-    let local_server_id = std::env::var("NANOSCALE_ORCHESTRATOR_SERVER_ID")
-        .unwrap_or_else(|_| DEFAULT_LOCAL_SERVER_ID.to_string());
-    let local_server_name = std::env::var("NANOSCALE_ORCHESTRATOR_SERVER_NAME")
-        .unwrap_or_else(|_| DEFAULT_LOCAL_SERVER_NAME.to_string());
-    let orchestrator_worker_ip = std::env::var("NANOSCALE_ORCHESTRATOR_WORKER_IP")
-        .unwrap_or_else(|_| DEFAULT_LOCAL_SERVER_IP.to_string());
+    let local_server_id = config.orchestrator_server_id();
+    let local_server_name = config.orchestrator_server_name();
+    let orchestrator_worker_ip = config.orchestrator_worker_ip();
+    let base_domain = config
+        .orchestrator_base_domain()
+        .map(|value| normalize_base_domain_value(&value))
+        .transpose()?
+        .map(|value| value.to_string());
     let local_server_secret = generate_secret_key();
 
     db_client
@@ -180,6 +181,7 @@ pub async fn run() -> Result<()> {
         token_store: Arc::new(TokenStore::new()),
         monitored_projects: Arc::new(RwLock::new(Vec::new())),
         local_server_id,
+        base_domain,
     };
 
     let monitor = InactivityMonitor::new(state.monitored_projects.clone());
@@ -295,6 +297,7 @@ async fn internal_projects(
     let run_command = payload.run_command;
     let output_directory = payload.output_directory;
     let port = payload.port;
+    let domain = payload.domain;
     let _env_var_pairs = payload
         .env_vars
         .into_iter()
@@ -354,8 +357,13 @@ async fn internal_projects(
             &privilege_wrapper,
         )
         .context("systemd generation failed")?;
-        NginxGenerator::generate_and_install(&project_id_for_build, port, &privilege_wrapper)
-            .context("nginx generation failed")?;
+        NginxGenerator::generate_and_install(
+            &project_id_for_build,
+            port,
+            domain.as_deref(),
+            &privilege_wrapper,
+        )
+        .context("nginx generation failed")?;
 
         Result::<(), anyhow::Error>::Ok(())
     })
@@ -419,8 +427,9 @@ async fn internal_delete_project(
     match delete_result {
         Ok(Ok(())) => {
             let mut monitored_projects = state.monitored_projects.write().await;
-            monitored_projects
-                .retain(|project| project.service_name != format!("nanoscale-{project_id}.service"));
+            monitored_projects.retain(|project| {
+                project.service_name != format!("nanoscale-{project_id}.service")
+            });
 
             (
                 StatusCode::OK,
@@ -579,6 +588,7 @@ fn map_project_list_record(project: ProjectListRecord) -> ProjectListItem {
         branch: project.branch,
         run_command: project.start_command,
         port: project.port,
+        domain: project.domain,
         status: "deployed".to_string(),
         created_at: project.created_at,
     }
@@ -597,8 +607,139 @@ fn map_project_details_record(project: ProjectDetailsRecord) -> ProjectDetailsRe
         run_command: project.start_command,
         status: "deployed".to_string(),
         port: project.port,
+        domain: project.domain,
         created_at: project.created_at,
     }
+}
+
+fn normalize_base_domain_value(raw_value: &str) -> Result<String, anyhow::Error> {
+    let normalized = raw_value.trim().trim_end_matches('.').to_lowercase();
+    if normalized.is_empty() {
+        anyhow::bail!("Base domain cannot be empty");
+    }
+
+    if normalized.contains('/') || normalized.contains(':') || normalized.contains("..") {
+        anyhow::bail!("Base domain must be a bare domain like mydomain.com");
+    }
+
+    if !normalized
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || character == '-' || character == '.')
+    {
+        anyhow::bail!("Base domain may only contain letters, digits, dots, and hyphens");
+    }
+
+    Ok(normalized)
+}
+
+fn slugify_project_name(name: &str) -> Result<String, String> {
+    let mut slug = String::new();
+    let mut previous_was_separator = false;
+
+    for character in name.chars() {
+        let lowercase = character.to_ascii_lowercase();
+        if lowercase.is_ascii_alphanumeric() {
+            slug.push(lowercase);
+            previous_was_separator = false;
+            continue;
+        }
+
+        if !previous_was_separator {
+            slug.push('-');
+            previous_was_separator = true;
+        }
+    }
+
+    let slug = slug.trim_matches('-').to_string();
+    if slug.is_empty() {
+        return Err("Project name cannot be converted into a valid subdomain".to_string());
+    }
+
+    Ok(slug)
+}
+
+fn trim_label_for_suffix(label: &str, suffix_len: usize) -> String {
+    let max_prefix_len = 63_usize.saturating_sub(suffix_len + 1);
+    let mut trimmed = label
+        .chars()
+        .take(max_prefix_len.max(1))
+        .collect::<String>();
+
+    while trimmed.ends_with('-') {
+        let _ = trimmed.pop();
+    }
+
+    if trimmed.is_empty() {
+        "project".to_string()
+    } else {
+        trimmed
+    }
+}
+
+fn truncate_dns_label(label: &str) -> String {
+    let mut truncated = label.chars().take(63).collect::<String>();
+    while truncated.ends_with('-') {
+        let _ = truncated.pop();
+    }
+
+    if truncated.is_empty() {
+        "project".to_string()
+    } else {
+        truncated
+    }
+}
+
+async fn assigned_project_domain(
+    state: &OrchestratorState,
+    project_id: &str,
+    project_name: &str,
+) -> Result<Option<String>, (StatusCode, String)> {
+    let Some(base_domain) = state.base_domain.as_deref() else {
+        return Ok(None);
+    };
+
+    let label =
+        slugify_project_name(project_name).map_err(|message| (StatusCode::BAD_REQUEST, message))?;
+    let label = truncate_dns_label(&label);
+    let mut fqdn = format!("{label}.{base_domain}");
+
+    let in_use = state
+        .db
+        .is_project_domain_in_use(&fqdn)
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Unable to validate project domain uniqueness: {error}"),
+            )
+        })?;
+
+    if in_use {
+        let compact_id = project_id.replace('-', "");
+        let suffix = compact_id.chars().take(6).collect::<String>();
+        let adjusted_label = trim_label_for_suffix(&label, suffix.len());
+        fqdn = format!("{adjusted_label}-{suffix}.{base_domain}");
+
+        let adjusted_in_use = state
+            .db
+            .is_project_domain_in_use(&fqdn)
+            .await
+            .map_err(|error| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Unable to validate project domain uniqueness: {error}"),
+                )
+            })?;
+
+        if adjusted_in_use {
+            return Err((
+                StatusCode::CONFLICT,
+                "Unable to allocate unique subdomain for this project".to_string(),
+            ));
+        }
+    }
+
+    Ok(Some(fqdn))
 }
 
 async fn list_projects(
@@ -614,10 +755,7 @@ async fn list_projects(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(
-        projects
-            .into_iter()
-            .map(map_project_list_record)
-            .collect(),
+        projects.into_iter().map(map_project_list_record).collect(),
     ))
 }
 
@@ -694,12 +832,16 @@ async fn delete_project(
         ));
     }
 
-    state.db.delete_project_by_id(&project_id).await.map_err(|error| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to delete project: {error}"),
-        )
-    })?;
+    state
+        .db
+        .delete_project_by_id(&project_id)
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to delete project: {error}"),
+            )
+        })?;
 
     {
         let mut monitored_projects = state.monitored_projects.write().await;
@@ -710,6 +852,7 @@ async fn delete_project(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[allow(clippy::too_many_lines)]
 async fn create_project(
     State(state): State<OrchestratorState>,
     session: Session,
@@ -747,6 +890,7 @@ async fn create_project(
         ))?;
 
     let project_id = Uuid::new_v4().to_string();
+    let project_domain = assigned_project_domain(&state, &project_id, &payload.name).await?;
     let project_port = match payload.port {
         Some(requested_port) => {
             let requested_port = i64::from(requested_port);
@@ -780,12 +924,16 @@ async fn create_project(
 
             requested_port
         }
-        None => state.db.next_available_project_port().await.map_err(|error| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Unable to allocate project port: {error}"),
-            )
-        })?,
+        None => state
+            .db
+            .next_available_project_port()
+            .await
+            .map_err(|error| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Unable to allocate project port: {error}"),
+                )
+            })?,
     };
 
     let project = NewProject {
@@ -804,6 +952,7 @@ async fn create_project(
             )
         })?,
         port: project_port,
+        domain: project_domain.clone(),
     };
 
     state.db.insert_project(&project).await.map_err(|error| {
@@ -825,6 +974,7 @@ async fn create_project(
         &connection.secret_key,
         &payload,
         &project_id,
+        project_domain.as_deref(),
         u16::try_from(project_port).map_err(|_| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -841,7 +991,10 @@ async fn create_project(
         ));
     }
 
-    Ok(Json(CreateProjectResponse { id: project_id }))
+    Ok(Json(CreateProjectResponse {
+        id: project_id,
+        domain: project_domain,
+    }))
 }
 
 async fn call_worker_create_project(
@@ -850,6 +1003,7 @@ async fn call_worker_create_project(
     secret_key: &str,
     payload: &CreateProjectRequest,
     project_id: &str,
+    domain: Option<&str>,
     project_port: u16,
 ) -> Result<(), anyhow::Error> {
     let worker_payload = WorkerCreateProjectRequest {
@@ -862,6 +1016,7 @@ async fn call_worker_create_project(
         run_command: payload.run_command.clone(),
         output_directory: payload.output_directory.clone(),
         port: project_port,
+        domain: domain.map(ToOwned::to_owned),
         env_vars: payload.env_vars.clone(),
     };
 

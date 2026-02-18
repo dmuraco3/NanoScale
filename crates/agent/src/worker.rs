@@ -12,6 +12,7 @@ use sysinfo::System;
 use tokio::sync::RwLock;
 
 use crate::cluster::protocol::{JoinClusterRequest, JoinClusterResponse};
+use crate::config::NanoScaleConfig;
 use crate::deployment::build::{BuildSettings, BuildSystem};
 use crate::deployment::git::Git;
 use crate::deployment::inactivity_monitor::{InactivityMonitor, MonitoredProject};
@@ -19,11 +20,6 @@ use crate::deployment::nginx::NginxGenerator;
 use crate::deployment::systemd::SystemdGenerator;
 use crate::deployment::teardown::Teardown;
 use crate::system::PrivilegeWrapper;
-
-const DEFAULT_ORCHESTRATOR_URL: &str = "http://127.0.0.1:4000";
-const DEFAULT_WORKER_IP: &str = "127.0.0.1";
-const DEFAULT_WORKER_NAME: &str = "worker-node";
-const DEFAULT_WORKER_BIND: &str = "0.0.0.0:4000";
 
 #[derive(Debug, Serialize)]
 struct HealthResponse {
@@ -48,6 +44,7 @@ struct WorkerCreateProjectRequest {
     run_command: String,
     output_directory: String,
     port: u16,
+    domain: Option<String>,
     env_vars: Vec<WorkerProjectEnvVar>,
 }
 
@@ -75,14 +72,11 @@ pub async fn run(join_token: &str) -> Result<()> {
         let _ = privilege_wrapper.run("/usr/bin/systemctl", &["status", "nanoscale-agent"]);
     }
 
-    let orchestrator_url = std::env::var("NANOSCALE_ORCHESTRATOR_URL")
-        .unwrap_or_else(|_| DEFAULT_ORCHESTRATOR_URL.to_string());
-    let worker_ip =
-        std::env::var("NANOSCALE_WORKER_IP").unwrap_or_else(|_| DEFAULT_WORKER_IP.to_string());
-    let worker_name =
-        std::env::var("NANOSCALE_WORKER_NAME").unwrap_or_else(|_| DEFAULT_WORKER_NAME.to_string());
-    let worker_bind =
-        std::env::var("NANOSCALE_WORKER_BIND").unwrap_or_else(|_| DEFAULT_WORKER_BIND.to_string());
+    let config = NanoScaleConfig::load()?;
+    let orchestrator_url = config.worker_orchestrator_url();
+    let worker_ip = config.worker_ip();
+    let worker_name = config.worker_name();
+    let worker_bind = config.worker_bind();
 
     let secret_key = generate_secret_key();
     let join_request = JoinClusterRequest {
@@ -165,8 +159,9 @@ async fn internal_delete_project(
     match delete_result {
         Ok(Ok(())) => {
             let mut monitored_projects = state.monitored_projects.write().await;
-            monitored_projects
-                .retain(|project| project.service_name != format!("nanoscale-{project_id}.service"));
+            monitored_projects.retain(|project| {
+                project.service_name != format!("nanoscale-{project_id}.service")
+            });
 
             (
                 StatusCode::NO_CONTENT,
@@ -206,6 +201,7 @@ async fn internal_projects(
     let run_command = payload.run_command;
     let output_directory = payload.output_directory;
     let port = payload.port;
+    let domain = payload.domain;
     let _env_var_pairs = payload
         .env_vars
         .into_iter()
@@ -265,8 +261,13 @@ async fn internal_projects(
             &privilege_wrapper,
         )
         .context("systemd generation failed")?;
-        NginxGenerator::generate_and_install(&project_id_for_build, port, &privilege_wrapper)
-            .context("nginx generation failed")?;
+        NginxGenerator::generate_and_install(
+            &project_id_for_build,
+            port,
+            domain.as_deref(),
+            &privilege_wrapper,
+        )
+        .context("nginx generation failed")?;
 
         Result::<(), anyhow::Error>::Ok(())
     })

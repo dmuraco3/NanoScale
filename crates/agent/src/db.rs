@@ -25,6 +25,7 @@ pub struct NewProject {
     pub start_command: String,
     pub env_vars: String,
     pub port: i64,
+    pub domain: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -63,6 +64,7 @@ pub struct ProjectListRecord {
     pub branch: String,
     pub start_command: String,
     pub port: i64,
+    pub domain: Option<String>,
     pub created_at: String,
 }
 
@@ -77,6 +79,7 @@ pub struct ProjectDetailsRecord {
     pub build_command: String,
     pub start_command: String,
     pub port: i64,
+    pub domain: Option<String>,
     pub created_at: String,
     pub server_name: Option<String>,
 }
@@ -257,7 +260,7 @@ impl DbClient {
 
     pub async fn insert_project(&self, project: &NewProject) -> Result<()> {
         sqlx::query(
-            "INSERT INTO projects (id, server_id, name, repo_url, branch, install_command, build_command, start_command, env_vars, port) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT INTO projects (id, server_id, name, repo_url, branch, install_command, build_command, start_command, env_vars, port, domain) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         )
         .bind(&project.id)
         .bind(&project.server_id)
@@ -269,6 +272,7 @@ impl DbClient {
         .bind(&project.start_command)
         .bind(&project.env_vars)
         .bind(project.port)
+        .bind(project.domain.as_deref())
         .execute(&self.pool)
         .await?;
 
@@ -285,8 +289,8 @@ impl DbClient {
     }
 
     pub async fn list_projects(&self) -> Result<Vec<ProjectListRecord>> {
-        let rows = sqlx::query_as::<_, (String, String, String, String, String, i64, String)>(
-            "SELECT id, name, repo_url, branch, start_command, port, created_at FROM projects ORDER BY created_at DESC",
+        let rows = sqlx::query_as::<_, (String, String, String, String, String, i64, Option<String>, String)>(
+            "SELECT id, name, repo_url, branch, start_command, port, domain, created_at FROM projects ORDER BY created_at DESC",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -294,14 +298,17 @@ impl DbClient {
         let projects = rows
             .into_iter()
             .map(
-                |(id, name, repo_url, branch, start_command, port, created_at)| ProjectListRecord {
-                    id,
-                    name,
-                    repo_url,
-                    branch,
-                    start_command,
-                    port,
-                    created_at,
+                |(id, name, repo_url, branch, start_command, port, domain, created_at)| {
+                    ProjectListRecord {
+                        id,
+                        name,
+                        repo_url,
+                        branch,
+                        start_command,
+                        port,
+                        domain,
+                        created_at,
+                    }
                 },
             )
             .collect();
@@ -309,7 +316,10 @@ impl DbClient {
         Ok(projects)
     }
 
-    pub async fn get_project_by_id(&self, project_id: &str) -> Result<Option<ProjectDetailsRecord>> {
+    pub async fn get_project_by_id(
+        &self,
+        project_id: &str,
+    ) -> Result<Option<ProjectDetailsRecord>> {
         let row = sqlx::query_as::<
             _,
             (
@@ -322,11 +332,12 @@ impl DbClient {
                 String,
                 String,
                 i64,
+                Option<String>,
                 String,
                 Option<String>,
             ),
         >(
-            "SELECT p.id, p.server_id, p.name, p.repo_url, p.branch, p.install_command, p.build_command, p.start_command, p.port, p.created_at, s.name FROM projects p LEFT JOIN servers s ON s.id = p.server_id WHERE p.id = ?1",
+            "SELECT p.id, p.server_id, p.name, p.repo_url, p.branch, p.install_command, p.build_command, p.start_command, p.port, p.domain, p.created_at, s.name FROM projects p LEFT JOIN servers s ON s.id = p.server_id WHERE p.id = ?1",
         )
         .bind(project_id)
         .fetch_optional(&self.pool)
@@ -343,6 +354,7 @@ impl DbClient {
                 build_command,
                 start_command,
                 port,
+                domain,
                 created_at,
                 server_name,
             )| ProjectDetailsRecord {
@@ -355,6 +367,7 @@ impl DbClient {
                 build_command,
                 start_command,
                 port,
+                domain,
                 created_at,
                 server_name,
             },
@@ -381,6 +394,17 @@ impl DbClient {
             .bind(port)
             .fetch_one(&self.pool)
             .await?;
+
+        Ok(count > 0)
+    }
+
+    pub async fn is_project_domain_in_use(&self, domain: &str) -> Result<bool> {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM projects WHERE domain IS NOT NULL AND domain = ?1",
+        )
+        .bind(domain)
+        .fetch_one(&self.pool)
+        .await?;
 
         Ok(count > 0)
     }

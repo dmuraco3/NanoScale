@@ -15,10 +15,11 @@ impl NginxGenerator {
     pub fn generate_and_install(
         project_id: &str,
         port: u16,
+        domain: Option<&str>,
         privilege_wrapper: &PrivilegeWrapper,
     ) -> Result<()> {
         let site_name = format!("nanoscale-{project_id}");
-        let server_name = Self::server_name(project_id);
+        let server_name = Self::server_name(project_id, domain);
         let tmp_conf_enabled_path =
             PathBuf::from(format!("{TMP_BASE_PATH}/{site_name}.enabled.conf"));
 
@@ -44,10 +45,16 @@ impl NginxGenerator {
         Ok(())
     }
 
-    fn server_name(project_id: &str) -> String {
+    fn server_name(project_id: &str, domain: Option<&str>) -> String {
         let compact_id = project_id.replace('-', "");
         let short_id = compact_id.chars().take(12).collect::<String>();
-        format!("ns-{short_id}.local")
+        let fallback = format!("ns-{short_id}.local");
+
+        let domain = domain.map(str::trim).filter(|value| !value.is_empty());
+        match domain {
+            Some(domain) => format!("{domain} {fallback}"),
+            None => fallback,
+        }
     }
 
     fn nginx_template(server_name: &str, port: u16) -> String {

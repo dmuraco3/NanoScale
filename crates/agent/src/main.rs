@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::{Parser, ValueEnum};
 
 mod cluster;
+mod config;
 mod db;
 mod deployment;
 mod orchestrator;

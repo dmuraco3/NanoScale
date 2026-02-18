@@ -2,6 +2,7 @@
 set -euo pipefail
 
 readonly NANOSCALE_ROOT="/opt/nanoscale"
+readonly CONFIG_FILE_PATH="${NANOSCALE_ROOT}/config.json"
 readonly SUDOERS_TEMPLATE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/security/sudoers.d/nanoscale"
 readonly SUDOERS_TARGET="/etc/sudoers.d/nanoscale"
 
@@ -140,6 +141,36 @@ create_directories() {
   chmod 0711 "${NANOSCALE_ROOT}/sites"
 }
 
+create_default_backend_config() {
+  if [[ -f "${CONFIG_FILE_PATH}" ]]; then
+    echo "Keeping existing backend config: ${CONFIG_FILE_PATH}"
+    return
+  fi
+
+  cat > "${CONFIG_FILE_PATH}" <<'JSON'
+{
+  "database_path": "/opt/nanoscale/data/nanoscale.db",
+  "orchestrator": {
+    "bind_address": "0.0.0.0:4000",
+    "server_id": "orchestrator-local",
+    "server_name": "orchestrator",
+    "worker_ip": "127.0.0.1",
+    "base_domain": ""
+  },
+  "worker": {
+    "orchestrator_url": "http://127.0.0.1:4000",
+    "ip": "127.0.0.1",
+    "name": "worker-node",
+    "bind": "0.0.0.0:4000"
+  }
+}
+JSON
+
+  chown nanoscale:nanoscale "${CONFIG_FILE_PATH}"
+  chmod 0644 "${CONFIG_FILE_PATH}"
+  echo "Created backend config: ${CONFIG_FILE_PATH}"
+}
+
 configure_sudoers() {
   if [[ ! -f "${SUDOERS_TEMPLATE}" ]]; then
     echo "Error: sudoers template not found: ${SUDOERS_TEMPLATE}"
@@ -173,6 +204,7 @@ main() {
   ensure_dependencies
   ensure_group_and_user
   create_directories
+  create_default_backend_config
   configure_sudoers
   configure_firewall
   print_mode_summary

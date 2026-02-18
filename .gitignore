@@ -10,3 +10,4 @@ target/
 
 .vscode/
 .playwright-mcp/
+tsconfig.tsbuildinfo

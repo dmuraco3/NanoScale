@@ -14,6 +14,7 @@ export interface ProjectListItem {
   branch: string;
   run_command: string;
   port: number;
+  domain: string | null;
   status: string;
   created_at: string;
 }
@@ -30,6 +31,7 @@ export interface ProjectDetailsItem {
   run_command: string;
   status: string;
   port: number;
+  domain: string | null;
   created_at: string;
 }
 
@@ -48,6 +50,7 @@ export interface CreateProjectPayload {
 
 export interface CreateProjectResponse {
   id: string;
+  domain: string | null;
 }
 
 export type CreateProjectResult =

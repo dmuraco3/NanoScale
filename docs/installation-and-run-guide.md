@@ -70,11 +70,42 @@ Binary path:
 
 On the orchestrator machine:
 
+1) Edit backend config values in `/opt/nanoscale/config.json` (created by installer):
+
+```json
+{
+  "database_path": "/opt/nanoscale/data/nanoscale.db",
+  "orchestrator": {
+    "bind_address": "0.0.0.0:4000",
+    "server_id": "orchestrator-local",
+    "server_name": "orchestrator",
+    "worker_ip": "127.0.0.1",
+    "base_domain": "mydomain.com"
+  },
+  "worker": {
+    "orchestrator_url": "http://127.0.0.1:4000",
+    "ip": "127.0.0.1",
+    "name": "worker-node",
+    "bind": "0.0.0.0:4000"
+  }
+}
+```
+
+`orchestrator.base_domain` is optional. When set, newly created projects get a `domain` like:
+
+- `test-app.mydomain.com`
+
+2) Start orchestrator:
+
 ```bash
-NANOSCALE_DB_PATH=/opt/nanoscale/data/nanoscale.db \
-NANOSCALE_ORCHESTRATOR_BIND=0.0.0.0:4000 \
 ./target/release/agent --role orchestrator
 ```
+
+Note: assigning a domain does not automatically configure DNS. For the URL to resolve publicly you must:
+
+- Own/control the base domain
+- Point the project subdomain(s) to the public IP of the machine running the project (worker), or to a load balancer that routes by `Host`
+- (Optional) Set up TLS/HTTPS separately (Let’s Encrypt, cert manager, etc.)
 
 On startup you should see:
 
@@ -119,12 +150,10 @@ cargo build --release -p agent
 3. Start worker and join orchestrator:
 
 ```bash
-NANOSCALE_ORCHESTRATOR_URL=http://<ORCHESTRATOR_IP>:4000 \
-NANOSCALE_WORKER_IP=<WORKER_IP> \
-NANOSCALE_WORKER_NAME=<WORKER_NAME> \
-NANOSCALE_WORKER_BIND=0.0.0.0:4000 \
 ./target/release/agent --join <JOIN_TOKEN>
 ```
+
+Worker connection/runtime values are loaded from `/opt/nanoscale/config.json` under the `worker` section.
 
 If successful, the worker reports it joined the cluster and starts internal API endpoints on port `4000`.
 
@@ -156,8 +185,6 @@ Use one of these fixes:
 
 ```bash
 sudo -u nanoscale \
-NANOSCALE_DB_PATH=/opt/nanoscale/data/nanoscale.db \
-NANOSCALE_ORCHESTRATOR_BIND=0.0.0.0:4000 \
 ./target/release/agent --role orchestrator
 ```
 
@@ -171,7 +198,8 @@ sudo chown -R nanoscale:nanoscale /opt/nanoscale
 3. For local/dev-only runs, use a DB path in your current directory:
 
 ```bash
-NANOSCALE_DB_PATH=./nanoscale.db \
-NANOSCALE_ORCHESTRATOR_BIND=0.0.0.0:4000 \
+cp /opt/nanoscale/config.json ./config.json
+# edit database_path in ./config.json to ./nanoscale.db
+NANOSCALE_CONFIG_PATH=./config.json \
 ./target/release/agent --role orchestrator
 ```

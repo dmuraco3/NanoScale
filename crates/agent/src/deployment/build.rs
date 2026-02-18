@@ -56,8 +56,9 @@ impl BuildSystem {
         Self::replace_directory(&artifact_source_dir, &destination_dir)
             .map_err(|error| anyhow::anyhow!("artifact copy failed: {error:#}"))?;
 
-        Self::ensure_sites_directory_traversable()
-            .map_err(|error| anyhow::anyhow!("sites directory permission setup failed: {error:#}"))?;
+        Self::ensure_sites_directory_traversable().map_err(|error| {
+            anyhow::anyhow!("sites directory permission setup failed: {error:#}")
+        })?;
 
         let runtime = if destination_dir.join("server.js").is_file()
             || destination_dir.join(".next/standalone/server.js").is_file()
@@ -219,7 +220,10 @@ impl BuildSystem {
             } else if source_type.is_file() {
                 fs::copy(&source_path, &destination_path)?;
             } else {
-                bail!("unsupported file type while copying artifacts: {}", source_path.display());
+                bail!(
+                    "unsupported file type while copying artifacts: {}",
+                    source_path.display()
+                );
             }
         }
 
@@ -245,7 +249,9 @@ impl BuildSystem {
             bail!("failed to resolve primary group for {username}: {stderr}");
         }
 
-        let group = String::from_utf8_lossy(&primary_group.stdout).trim().to_string();
+        let group = String::from_utf8_lossy(&primary_group.stdout)
+            .trim()
+            .to_string();
         let owner = format!("{username}:{group}");
         let destination = destination_dir
             .to_str()
@@ -272,10 +278,7 @@ impl BuildSystem {
             return Ok(());
         }
 
-        privilege_wrapper.run(
-            "/usr/sbin/useradd",
-            &["-r", "-s", "/bin/false", &username],
-        )?;
+        privilege_wrapper.run("/usr/sbin/useradd", &["-r", "-s", "/bin/false", &username])?;
 
         Ok(())
     }
