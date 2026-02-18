@@ -18,6 +18,7 @@ impl NginxGenerator {
         privilege_wrapper: &PrivilegeWrapper,
     ) -> Result<()> {
         let site_name = format!("nanoscale-{project_id}");
+        let server_name = Self::server_name(project_id);
         let tmp_conf_enabled_path =
             PathBuf::from(format!("{TMP_BASE_PATH}/{site_name}.enabled.conf"));
 
@@ -25,7 +26,7 @@ impl NginxGenerator {
             fs::create_dir_all(parent_dir)?;
         }
 
-        let conf_text = Self::nginx_template(&site_name, port);
+        let conf_text = Self::nginx_template(&server_name, port);
         fs::write(&tmp_conf_enabled_path, conf_text)?;
 
         let target_enabled_conf_path = format!("{NGINX_SITES_ENABLED}/{site_name}.conf");
@@ -43,9 +44,15 @@ impl NginxGenerator {
         Ok(())
     }
 
-    fn nginx_template(site_name: &str, port: u16) -> String {
+    fn server_name(project_id: &str) -> String {
+        let compact_id = project_id.replace('-', "");
+        let short_id = compact_id.chars().take(12).collect::<String>();
+        format!("ns-{short_id}.local")
+    }
+
+    fn nginx_template(server_name: &str, port: u16) -> String {
         format!(
-            "server {{\n    listen 80;\n    server_name {site_name}.local;\n\n    location / {{\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n        proxy_pass http://127.0.0.1:{port};\n    }}\n}}\n"
+            "server {{\n    listen 80;\n    server_name {server_name};\n\n    location / {{\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n        proxy_pass http://127.0.0.1:{port};\n    }}\n}}\n"
         )
     }
 }
