@@ -58,6 +58,10 @@ impl SystemdGenerator {
         privilege_wrapper.run("/usr/bin/mv", &[tmp_service_string, &service_target])?;
         privilege_wrapper.run("/usr/bin/mv", &[tmp_socket_string, &socket_target])?;
         privilege_wrapper.run("/usr/bin/systemctl", &["daemon-reload"])?;
+        privilege_wrapper.run(
+            "/usr/bin/systemctl",
+            &["enable", "--now", &format!("{service_name}.service")],
+        )?;
 
         Ok(())
     }

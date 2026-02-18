@@ -77,7 +77,35 @@ impl PrivilegeWrapper {
             return Ok(());
         }
 
+        if args.len() == 3
+            && args[0] == "enable"
+            && args[1] == "--now"
+            && args[2].starts_with("nanoscale-")
+            && args[2].ends_with(".service")
+        {
+            return Ok(());
+        }
+
         if args == ["status", "nanoscale-agent"] {
+            return Ok(());
+        }
+
+        if args.len() == 4
+            && args[0] == "show"
+            && args[1].starts_with("--property=")
+            && args[2] == "--value"
+            && args[3].starts_with("nanoscale-")
+            && args[3].ends_with(".service")
+        {
+            return Ok(());
+        }
+
+        if args.len() == 3
+            && args[0] == "show"
+            && args[1].starts_with("--property=")
+            && args[2].starts_with("nanoscale-")
+            && args[2].ends_with(".service")
+        {
             return Ok(());
         }
 

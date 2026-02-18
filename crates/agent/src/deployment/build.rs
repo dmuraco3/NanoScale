@@ -1,4 +1,5 @@
 use std::fs;
+use std::os::unix::fs::{symlink, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -55,7 +56,12 @@ impl BuildSystem {
         Self::replace_directory(&artifact_source_dir, &destination_dir)
             .map_err(|error| anyhow::anyhow!("artifact copy failed: {error:#}"))?;
 
-        let runtime = if destination_dir.join("server.js").is_file() {
+        Self::ensure_sites_directory_traversable()
+            .map_err(|error| anyhow::anyhow!("sites directory permission setup failed: {error:#}"))?;
+
+        let runtime = if destination_dir.join("server.js").is_file()
+            || destination_dir.join(".next/standalone/server.js").is_file()
+        {
             AppRuntime::StandaloneNode
         } else {
             let bun_binary = Self::bun_binary()
@@ -86,6 +92,25 @@ impl BuildSystem {
         }
 
         privilege_wrapper.run("/usr/bin/fallocate", &["-l", "2G", SWAP_FILE_PATH])?;
+        Ok(())
+    }
+
+    fn ensure_sites_directory_traversable() -> Result<()> {
+        let sites_dir = Path::new(SOURCE_BASE_PATH);
+        if !sites_dir.exists() {
+            return Ok(());
+        }
+
+        let metadata = fs::metadata(sites_dir)?;
+        let current_mode = metadata.permissions().mode();
+        let target_mode = current_mode | 0o111;
+
+        if target_mode != current_mode {
+            let mut permissions = metadata.permissions();
+            permissions.set_mode(target_mode);
+            fs::set_permissions(sites_dir, permissions)?;
+        }
+
         Ok(())
     }
 
@@ -183,11 +208,18 @@ impl BuildSystem {
             let entry = entry?;
             let source_path = entry.path();
             let destination_path = destination_dir.join(entry.file_name());
+            let source_metadata = fs::symlink_metadata(&source_path)?;
+            let source_type = source_metadata.file_type();
 
-            if source_path.is_dir() {
+            if source_type.is_symlink() {
+                let symlink_target = fs::read_link(&source_path)?;
+                symlink(&symlink_target, &destination_path)?;
+            } else if source_type.is_dir() {
                 Self::copy_directory_recursive(&source_path, &destination_path)?;
-            } else {
+            } else if source_type.is_file() {
                 fs::copy(&source_path, &destination_path)?;
+            } else {
+                bail!("unsupported file type while copying artifacts: {}", source_path.display());
             }
         }
 

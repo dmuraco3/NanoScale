@@ -137,7 +137,7 @@ ensure_group_and_user() {
 create_directories() {
   mkdir -p "${NANOSCALE_ROOT}/"{bin,data,sites,config,logs,tmp}
   chown -R nanoscale:nanoscale "${NANOSCALE_ROOT}"
-  chmod 0700 "${NANOSCALE_ROOT}/sites"
+  chmod 0711 "${NANOSCALE_ROOT}/sites"
 }
 
 configure_sudoers() {
