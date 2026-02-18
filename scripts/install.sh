@@ -3,7 +3,8 @@ set -euo pipefail
 
 readonly NANOSCALE_ROOT="/opt/nanoscale"
 readonly CONFIG_FILE_PATH="${NANOSCALE_ROOT}/config.json"
-readonly SUDOERS_TEMPLATE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/security/sudoers.d/nanoscale"
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SUDOERS_TEMPLATE="${SCRIPT_DIR}/security/sudoers.d/nanoscale"
 readonly SUDOERS_TARGET="/etc/sudoers.d/nanoscale"
 
 ROLE=""
@@ -20,6 +21,36 @@ usage() {
 require_root() {
   if [[ "${EUID}" -ne 0 ]]; then
     echo "Error: install.sh must run as root."
+    exit 1
+  fi
+}
+
+require_command() {
+  local command_name="$1"
+  local install_hint="$2"
+
+  if ! command -v "${command_name}" >/dev/null 2>&1; then
+    echo "Error: required command not found: ${command_name}"
+    echo "Hint: ${install_hint}"
+    exit 1
+  fi
+}
+
+resolve_repo_root() {
+  if command -v git >/dev/null 2>&1 && git rev-parse --show-toplevel >/dev/null 2>&1; then
+    git rev-parse --show-toplevel
+    return
+  fi
+
+  (cd "${SCRIPT_DIR}/.." && pwd)
+}
+
+require_repo_root() {
+  local repo_root="$1"
+
+  if [[ ! -f "${repo_root}/Cargo.toml" || ! -f "${repo_root}/package.json" ]]; then
+    echo "Error: expected to run from the NanoScale repo root (missing Cargo.toml/package.json)."
+    echo "Current repo root guess: ${repo_root}"
     exit 1
   fi
 }
@@ -126,6 +157,40 @@ ensure_dependencies() {
   ensure_dependency "certbot" "certbot"
 }
 
+build_and_install_agent() {
+  local repo_root="$1"
+
+  require_command "cargo" "Install Rust (rustup) so 'cargo' is available."
+  require_command "install" "Install coreutils so the 'install' command is available."
+
+  echo "Building Rust agent (release)…"
+  (
+    cd "${repo_root}"
+    cargo build --release -p agent
+  )
+
+  echo "Installing agent binary to ${NANOSCALE_ROOT}/bin/agent…"
+  install -m 0755 "${repo_root}/target/release/agent" "${NANOSCALE_ROOT}/bin/agent"
+}
+
+build_dashboard() {
+  local repo_root="$1"
+
+  require_command "bun" "Install Bun so 'bun' is available (https://bun.sh)."
+
+  echo "Installing JS dependencies (bun)…"
+  (
+    cd "${repo_root}"
+    bun install
+  )
+
+  echo "Building dashboard (bun run build)…"
+  (
+    cd "${repo_root}"
+    bun run build
+  )
+}
+
 ensure_group_and_user() {
   if ! getent group nanoscale >/dev/null; then
     groupadd --system nanoscale
@@ -203,10 +268,19 @@ print_mode_summary() {
 main() {
   require_root
   parse_args "$@"
+
+  local repo_root
+  repo_root="$(resolve_repo_root)"
+  require_repo_root "${repo_root}"
+
   ensure_dependencies
   ensure_group_and_user
   create_directories
   create_default_backend_config
+
+  build_and_install_agent "${repo_root}"
+  build_dashboard "${repo_root}"
+
   configure_sudoers
   configure_firewall
   print_mode_summary
