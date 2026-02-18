@@ -72,7 +72,23 @@ async function ProjectsPage() {
 
                 <p className="mt-1 text-xs text-[var(--foreground-muted)] flex items-center gap-1">
                   <Network className="h-3.5 w-3.5" />
-                  Port: {project.port}
+                  URL:{" "}
+                  {project.domain ? (
+                    <a
+                      href={
+                        project.domain.startsWith("http://") || project.domain.startsWith("https://")
+                          ? project.domain
+                          : `https://${project.domain}`
+                      }
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hover:text-[var(--accent)]"
+                    >
+                      {project.domain}
+                    </a>
+                  ) : (
+                    "Not assigned"
+                  )}
                 </p>
 
                 <div className="mt-4 pt-4 border-t border-[var(--border)] flex items-center justify-between">

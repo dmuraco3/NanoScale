@@ -75,6 +75,7 @@ On the orchestrator machine:
 ```json
 {
   "database_path": "/opt/nanoscale/data/nanoscale.db",
+  "tls_email": "admin@mydomain.com",
   "orchestrator": {
     "bind_address": "0.0.0.0:4000",
     "server_id": "orchestrator-local",
@@ -94,6 +95,10 @@ On the orchestrator machine:
 `orchestrator.base_domain` is optional. When set, newly created projects get a `domain` like:
 
 - `test-app.mydomain.com`
+
+`tls_email` is optional, but required if you want NanoScale to automatically request and install
+Let's Encrypt certificates for project domains. You can also set it via the environment variable
+`NANOSCALE_TLS_EMAIL`.
 
 2) Start orchestrator:
 

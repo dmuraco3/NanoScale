@@ -16,6 +16,12 @@ async function ProjectDetailsPage(props: ProjectDetailsPageProps) {
   const searchParams = props.searchParams ? await props.searchParams : undefined;
   const project = await fetchProjectById(id);
 
+  const projectUrl = project?.domain
+    ? project.domain.startsWith("http://") || project.domain.startsWith("https://")
+      ? project.domain
+      : `https://${project.domain}`
+    : null;
+
   async function deleteProjectAction(formData: FormData) {
     "use server";
 
@@ -139,13 +145,24 @@ async function ProjectDetailsPage(props: ProjectDetailsPageProps) {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-[var(--foreground-secondary)]">
-              Port
+              URL
             </CardTitle>
           </CardHeader>
           <CardContent className="mt-0">
             <span className="flex items-center gap-2 text-[var(--foreground)]">
               <Network className="h-4 w-4" />
-              {project.port}
+              {projectUrl ? (
+                <a
+                  href={projectUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[var(--accent)] hover:underline"
+                >
+                  {project.domain}
+                </a>
+              ) : (
+                <span className="text-[var(--foreground-secondary)]">Not assigned</span>
+              )}
             </span>
           </CardContent>
         </Card>

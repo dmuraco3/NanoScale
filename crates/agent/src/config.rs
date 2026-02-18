@@ -21,6 +21,7 @@ const DEFAULT_WORKER_BIND: &str = "0.0.0.0:4000";
 #[serde(default)]
 pub struct NanoScaleConfig {
     pub database_path: Option<String>,
+    pub tls_email: Option<String>,
     pub orchestrator: OrchestratorConfig,
     pub worker: WorkerConfig,
 }
@@ -116,6 +117,20 @@ impl NanoScaleConfig {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(ToString::to_string)
+    }
+
+    pub fn tls_email(&self) -> Option<String> {
+        self.tls_email
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string)
+            .or_else(|| {
+                std::env::var("NANOSCALE_TLS_EMAIL")
+                    .ok()
+                    .map(|value| value.trim().to_string())
+                    .filter(|value| !value.is_empty())
+            })
     }
 
     pub fn worker_orchestrator_url(&self) -> String {

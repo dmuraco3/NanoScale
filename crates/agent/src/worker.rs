@@ -17,8 +17,10 @@ use crate::deployment::build::{BuildSettings, BuildSystem};
 use crate::deployment::git::Git;
 use crate::deployment::inactivity_monitor::{InactivityMonitor, MonitoredProject};
 use crate::deployment::nginx::NginxGenerator;
+use crate::deployment::nginx::NginxTlsMode;
 use crate::deployment::systemd::SystemdGenerator;
 use crate::deployment::teardown::Teardown;
+use crate::deployment::tls::TlsProvisioner;
 use crate::system::PrivilegeWrapper;
 
 #[derive(Debug, Serialize)]
@@ -45,6 +47,7 @@ struct WorkerCreateProjectRequest {
     output_directory: String,
     port: u16,
     domain: Option<String>,
+    tls_email: Option<String>,
     env_vars: Vec<WorkerProjectEnvVar>,
 }
 
@@ -202,6 +205,7 @@ async fn internal_projects(
     let output_directory = payload.output_directory;
     let port = payload.port;
     let domain = payload.domain;
+    let tls_email = payload.tls_email;
     let _env_var_pairs = payload
         .env_vars
         .into_iter()
@@ -222,7 +226,7 @@ async fn internal_projects(
     let run_command_for_systemd = run_command.clone();
     let output_directory_for_run = output_directory.clone();
 
-    let clone_result = tokio::task::spawn_blocking(move || {
+    let clone_result = tokio::task::spawn_blocking(move || -> Result<String, anyhow::Error> {
         Git::validate_repo_url(&repo_url_for_clone).context("repo URL validation failed")?;
         Git::validate_branch(&branch_for_checkout).context("branch validation failed")?;
 
@@ -265,16 +269,41 @@ async fn internal_projects(
             &project_id_for_build,
             port,
             domain.as_deref(),
+            NginxTlsMode::Disabled,
             &privilege_wrapper,
         )
         .context("nginx generation failed")?;
 
-        Result::<(), anyhow::Error>::Ok(())
+        let tls_summary = match (domain.as_deref(), tls_email.as_deref()) {
+            (Some(domain), Some(email)) => {
+                match TlsProvisioner::ensure_certificate(domain, email, &privilege_wrapper) {
+                    Ok(()) => {
+                        NginxGenerator::generate_and_install(
+                            &project_id_for_build,
+                            port,
+                            Some(domain),
+                            NginxTlsMode::Enabled { domain },
+                            &privilege_wrapper,
+                        )
+                        .context("nginx TLS generation failed")?;
+                        "TLS enabled".to_string()
+                    }
+                    Err(error) => {
+                        eprintln!("TLS provisioning failed for {domain}: {error:#}");
+                        format!("TLS provisioning failed: {error}")
+                    }
+                }
+            }
+            (Some(_), None) => "TLS skipped: NANOSCALE_TLS_EMAIL not configured".to_string(),
+            _ => "TLS skipped: no domain assigned".to_string(),
+        };
+
+        Ok(tls_summary)
     })
     .await;
 
-    let git_message = match clone_result {
-        Ok(Ok(())) => "Source cloned and branch checked out.",
+    let (git_message, tls_message) = match clone_result {
+        Ok(Ok(tls_message)) => ("Source cloned and branch checked out.", tls_message),
         Ok(Err(error)) => {
             return (
                 StatusCode::BAD_REQUEST,
@@ -311,7 +340,7 @@ async fn internal_projects(
         Json(CreateProjectPlaceholderResponse {
             status: "accepted",
             message: format!(
-                "{git_message} Build pipeline, systemd generation, and nginx configuration completed."
+                "{git_message} Build pipeline, systemd generation, and nginx configuration completed. {tls_message}."
             ),
         }),
     )

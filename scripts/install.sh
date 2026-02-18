@@ -123,6 +123,7 @@ ensure_dependencies() {
   ensure_dependency "nginx" "nginx"
   ensure_dependency "sqlite3" "sqlite3"
   ensure_dependency "ufw" "ufw"
+  ensure_dependency "certbot" "certbot"
 }
 
 ensure_group_and_user() {
@@ -150,6 +151,7 @@ create_default_backend_config() {
   cat > "${CONFIG_FILE_PATH}" <<'JSON'
 {
   "database_path": "/opt/nanoscale/data/nanoscale.db",
+  "tls_email": "",
   "orchestrator": {
     "bind_address": "0.0.0.0:4000",
     "server_id": "orchestrator-local",

@@ -3,7 +3,8 @@
     "cargo fmt": true,
     "cargo clippy": true,
     "bun": true,
-    "cargo check": true
+    "cargo check": true,
+    "cargo tree": true
   },
   "rust-analyzer.checkOnSave": true,
   "rust-analyzer.check.overrideCommand": [
