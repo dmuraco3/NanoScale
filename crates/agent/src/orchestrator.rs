@@ -9,7 +9,7 @@ use argon2::Argon2;
 use axum::extract::{Path as AxumPath, State};
 use axum::http::StatusCode;
 use axum::middleware;
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use hmac::Mac;
 use rand::distributions::Alphanumeric;
@@ -32,6 +32,7 @@ use crate::deployment::git::Git;
 use crate::deployment::inactivity_monitor::{InactivityMonitor, MonitoredProject};
 use crate::deployment::nginx::NginxGenerator;
 use crate::deployment::systemd::SystemdGenerator;
+use crate::deployment::teardown::Teardown;
 use crate::system::PrivilegeWrapper;
 
 const DEFAULT_DB_PATH: &str = "/opt/nanoscale/data/nanoscale.db";
@@ -191,6 +192,7 @@ pub async fn run() -> Result<()> {
 
     let internal_router = Router::new()
         .route("/projects", post(internal_projects))
+        .route("/projects/{id}", delete(internal_delete_project))
         .route("/verify-signature", post(verify_signature_guarded))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -402,6 +404,48 @@ async fn internal_projects(
             ),
         }),
     )
+}
+
+async fn internal_delete_project(
+    State(state): State<OrchestratorState>,
+    AxumPath(project_id): AxumPath<String>,
+) -> (StatusCode, Json<InternalProjectResponse>) {
+    let project_id_for_cleanup = project_id.clone();
+    let delete_result = tokio::task::spawn_blocking(move || {
+        let privilege_wrapper = PrivilegeWrapper::new();
+        Teardown::delete_project(&project_id_for_cleanup, &privilege_wrapper)
+    })
+    .await;
+
+    match delete_result {
+        Ok(Ok(())) => {
+            let mut monitored_projects = state.monitored_projects.write().await;
+            monitored_projects
+                .retain(|project| project.service_name != format!("nanoscale-{project_id}.service"));
+
+            (
+                StatusCode::OK,
+                Json(InternalProjectResponse {
+                    status: "accepted",
+                    message: "Project resources deleted".to_string(),
+                }),
+            )
+        }
+        Ok(Err(error)) => (
+            StatusCode::BAD_REQUEST,
+            Json(InternalProjectResponse {
+                status: "error",
+                message: format!("Project cleanup failed: {error:#}"),
+            }),
+        ),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(InternalProjectResponse {
+                status: "error",
+                message: format!("Project cleanup task failed: {error:#}"),
+            }),
+        ),
+    }
 }
 
 async fn auth_setup(
