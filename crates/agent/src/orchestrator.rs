@@ -96,6 +96,7 @@ pub async fn run() -> Result<()> {
     let internal_router = Router::new()
         .route("/projects", post(internal::internal_projects))
         .route("/projects/:id", delete(internal::internal_delete_project))
+        .route("/ports/check", post(internal::internal_port_check))
         .route("/verify-signature", post(cluster::verify_signature_guarded))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
