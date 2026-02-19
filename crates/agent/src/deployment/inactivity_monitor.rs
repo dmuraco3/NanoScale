@@ -111,17 +111,12 @@ fn should_stop_service(
         return Ok(false);
     }
 
-    let socket_unit_name = service_unit_to_socket_unit(&project.service_name);
-    let nconnections = match read_socket_nconnections(&privilege_wrapper, &socket_unit_name) {
-        Ok(value) => value,
-        Err(error) => {
-            eprintln!(
-                "scale-to-zero read socket connections failed for {}: {error}",
-                project.service_name
-            );
-            return Ok(false);
-        }
-    };
+    let ingress_bytes =
+        read_service_u64_property(&privilege_wrapper, &project.service_name, "IPIngressBytes")
+            .unwrap_or(0);
+    let egress_bytes =
+        read_service_u64_property(&privilege_wrapper, &project.service_name, "IPEgressBytes")
+            .unwrap_or(0);
 
     let mut state_guard = traffic_state
         .lock()
@@ -130,58 +125,52 @@ fn should_stop_service(
     let entry = state_guard
         .entry(project.service_name.clone())
         .or_insert_with(|| TrafficState {
-            last_nconnections: nconnections,
-            last_activity_uptime_seconds: now_uptime_seconds,
+            ingress_bytes,
+            egress_bytes,
+            activity_uptime_seconds: now_uptime_seconds,
         });
 
-    if nconnections != entry.last_nconnections {
-        entry.last_nconnections = nconnections;
-        entry.last_activity_uptime_seconds = now_uptime_seconds;
+    if ingress_bytes != entry.ingress_bytes || egress_bytes != entry.egress_bytes {
+        entry.ingress_bytes = ingress_bytes;
+        entry.egress_bytes = egress_bytes;
+        entry.activity_uptime_seconds = now_uptime_seconds;
     }
 
-    let inactive_for_seconds =
-        now_uptime_seconds.saturating_sub(entry.last_activity_uptime_seconds);
+    let inactive_for_seconds = now_uptime_seconds.saturating_sub(entry.activity_uptime_seconds);
     Ok(inactive_for_seconds > INACTIVITY_THRESHOLD_SECONDS)
 }
 
 #[derive(Clone, Copy, Debug)]
 struct TrafficState {
-    last_nconnections: u64,
-    last_activity_uptime_seconds: u64,
+    ingress_bytes: u64,
+    egress_bytes: u64,
+    activity_uptime_seconds: u64,
 }
 
-fn service_unit_to_socket_unit(service_unit_name: &str) -> String {
-    if let Some(stem) = service_unit_name.strip_suffix(".service") {
-        format!("{stem}.socket")
-    } else {
-        format!("{service_unit_name}.socket")
-    }
-}
-
-fn read_socket_nconnections(
+fn read_service_u64_property(
     privilege_wrapper: &PrivilegeWrapper,
-    socket_unit_name: &str,
+    service_unit_name: &str,
+    property_name: &str,
 ) -> anyhow::Result<u64> {
     let output = privilege_wrapper.run(
         "/usr/bin/systemctl",
         &[
             "show",
-            "--property=NConnections",
+            &format!("--property={property_name}"),
             "--value",
-            socket_unit_name,
+            service_unit_name,
         ],
     )?;
 
     let raw = String::from_utf8_lossy(&output.stdout);
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        anyhow::bail!("empty NConnections output")
+        anyhow::bail!("empty {property_name} output")
     }
 
-    let parsed = trimmed
+    trimmed
         .parse::<u64>()
-        .map_err(|error| anyhow::anyhow!("invalid NConnections '{trimmed}': {error}"))?;
-    Ok(parsed)
+        .map_err(|error| anyhow::anyhow!("invalid {property_name} '{trimmed}': {error}"))
 }
 
 fn read_uptime_seconds() -> Option<u64> {
