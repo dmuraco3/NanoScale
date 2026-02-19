@@ -78,7 +78,7 @@ impl NginxGenerator {
 
     fn nginx_http_template(server_name: &str, port: u16) -> String {
         format!(
-            "server {{\n    listen 80;\n    server_name {server_name};\n\n    location ^~ /.well-known/acme-challenge/ {{\n        root {ACME_WEBROOT_PATH};\n    }}\n\n    location / {{\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n        proxy_pass http://127.0.0.1:{port};\n    }}\n}}\n"
+            "server {{\n    listen 80;\n    server_name {server_name};\n\n    location ^~ /.well-known/acme-challenge/ {{\n        root {ACME_WEBROOT_PATH};\n    }}\n\n    location / {{\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n        proxy_next_upstream error timeout http_502 http_503 http_504;\n        proxy_next_upstream_tries 10;\n        proxy_next_upstream_timeout 10s;\n        proxy_connect_timeout 1s;\n        proxy_pass http://127.0.0.1:{port};\n    }}\n}}\n"
         )
     }
 
@@ -87,7 +87,7 @@ impl NginxGenerator {
         let key_path = format!("/etc/letsencrypt/live/{domain}/privkey.pem");
 
         format!(
-            "server {{\n    listen 80;\n    server_name {server_name};\n\n    location ^~ /.well-known/acme-challenge/ {{\n        root {ACME_WEBROOT_PATH};\n    }}\n\n    location / {{\n        return 301 https://$host$request_uri;\n    }}\n}}\n\nserver {{\n    listen 443 ssl;\n    server_name {server_name};\n\n    ssl_certificate {cert_path};\n    ssl_certificate_key {key_path};\n\n    location / {{\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n        proxy_pass http://127.0.0.1:{port};\n    }}\n}}\n"
+            "server {{\n    listen 80;\n    server_name {server_name};\n\n    location ^~ /.well-known/acme-challenge/ {{\n        root {ACME_WEBROOT_PATH};\n    }}\n\n    location / {{\n        return 301 https://$host$request_uri;\n    }}\n}}\n\nserver {{\n    listen 443 ssl;\n    server_name {server_name};\n\n    ssl_certificate {cert_path};\n    ssl_certificate_key {key_path};\n\n    location / {{\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n        proxy_next_upstream error timeout http_502 http_503 http_504;\n        proxy_next_upstream_tries 10;\n        proxy_next_upstream_timeout 10s;\n        proxy_connect_timeout 1s;\n        proxy_pass http://127.0.0.1:{port};\n    }}\n}}\n"
         )
     }
 }

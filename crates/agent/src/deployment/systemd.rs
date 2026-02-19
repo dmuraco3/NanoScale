@@ -8,7 +8,6 @@ use crate::system::PrivilegeWrapper;
 
 const TMP_BASE_PATH: &str = "/opt/nanoscale/tmp";
 const SYSTEMD_TARGET_PATH: &str = "/etc/systemd/system";
-const SOCKET_PROXYD_BIN: &str = "/lib/systemd/systemd-socket-proxyd";
 
 #[derive(Debug)]
 pub struct SystemdGenerator;
@@ -30,11 +29,11 @@ impl SystemdGenerator {
         let service_name = format!("nanoscale-{project_id}");
 
         let backend_port = backend_port(port)?;
+        let socket_proxyd_bin = socket_proxyd_binary()?;
 
         let tmp_service_path = PathBuf::from(format!("{TMP_BASE_PATH}/{service_name}.service"));
         let tmp_socket_path = PathBuf::from(format!("{TMP_BASE_PATH}/{service_name}.socket"));
-        let tmp_proxy_path =
-            PathBuf::from(format!("{TMP_BASE_PATH}/{service_name}-proxy@.service"));
+        let tmp_proxy_path = PathBuf::from(format!("{TMP_BASE_PATH}/{service_name}-proxy.service"));
 
         if let Some(parent_dir) = tmp_service_path.parent() {
             fs::create_dir_all(parent_dir)?;
@@ -53,7 +52,8 @@ impl SystemdGenerator {
             backend_port,
         )?;
         let socket_template = Self::socket_template(&service_name, port);
-        let proxy_template = Self::proxy_service_template(&service_name, backend_port);
+        let proxy_template =
+            Self::proxy_service_template(&service_name, backend_port, &socket_proxyd_bin);
 
         fs::write(&tmp_service_path, service_template)?;
         fs::write(&tmp_socket_path, socket_template)?;
@@ -61,7 +61,7 @@ impl SystemdGenerator {
 
         let service_target = format!("{SYSTEMD_TARGET_PATH}/{service_name}.service");
         let socket_target = format!("{SYSTEMD_TARGET_PATH}/{service_name}.socket");
-        let proxy_target = format!("{SYSTEMD_TARGET_PATH}/{service_name}-proxy@.service");
+        let proxy_target = format!("{SYSTEMD_TARGET_PATH}/{service_name}-proxy.service");
         let tmp_service_string = tmp_service_path
             .to_str()
             .ok_or_else(|| anyhow!("invalid temp service path"))?;
@@ -75,6 +75,11 @@ impl SystemdGenerator {
         privilege_wrapper.run("/usr/bin/mv", &[tmp_service_string, &service_target])?;
         privilege_wrapper.run("/usr/bin/mv", &[tmp_socket_string, &socket_target])?;
         privilege_wrapper.run("/usr/bin/mv", &[tmp_proxy_string, &proxy_target])?;
+
+        privilege_wrapper.run("/usr/bin/chown", &["root:root", &service_target])?;
+        privilege_wrapper.run("/usr/bin/chown", &["root:root", &socket_target])?;
+        privilege_wrapper.run("/usr/bin/chown", &["root:root", &proxy_target])?;
+
         privilege_wrapper.run("/usr/bin/systemctl", &["daemon-reload"])?;
         privilege_wrapper.run(
             "/usr/bin/systemctl",
@@ -191,15 +196,45 @@ impl SystemdGenerator {
 
     fn socket_template(service_name: &str, port: u16) -> String {
         format!(
-            "[Unit]\nDescription=NanoScale app socket ({service_name})\n\n[Socket]\nListenStream=127.0.0.1:{port}\nAccept=yes\nNoDelay=true\nService={service_name}-proxy@.service\n\n[Install]\nWantedBy=sockets.target\n"
+            "[Unit]\nDescription=NanoScale app socket ({service_name})\n\n[Socket]\nListenStream=127.0.0.1:{port}\nNoDelay=true\nService={service_name}-proxy.service\n\n[Install]\nWantedBy=sockets.target\n"
         )
     }
 
-    fn proxy_service_template(service_name: &str, backend_port: u16) -> String {
+    fn proxy_service_template(
+        service_name: &str,
+        backend_port: u16,
+        socket_proxyd_bin: &str,
+    ) -> String {
         format!(
-            "[Unit]\nDescription=NanoScale app connection proxy (%i) ({service_name})\nAfter=network.target\n\n[Service]\nType=simple\nExecStartPre=/usr/bin/systemctl start {service_name}.service\nExecStart={SOCKET_PROXYD_BIN} 127.0.0.1:{backend_port}\n\n# Keep per-connection proxy lightweight; systemd will respawn per new connection.\n"
+            "[Unit]\nDescription=NanoScale app socket proxy ({service_name})\nAfter=network.target\n\n[Service]\nType=simple\nRestart=always\nRestartSec=1\nExecStartPre=/usr/bin/systemctl start {service_name}.service\nExecStart={socket_proxyd_bin} 127.0.0.1:{backend_port}\n"
         )
     }
+}
+
+fn socket_proxyd_binary() -> Result<String> {
+    if let Ok(configured_binary) = std::env::var("NANOSCALE_SOCKET_PROXYD_BIN") {
+        let trimmed = configured_binary.trim();
+        if !trimmed.is_empty() {
+            if Path::new(trimmed).is_file() {
+                return Ok(trimmed.to_string());
+            }
+            bail!("NANOSCALE_SOCKET_PROXYD_BIN is set but does not exist: {trimmed}");
+        }
+    }
+
+    for candidate in [
+        "/lib/systemd/systemd-socket-proxyd",
+        "/usr/lib/systemd/systemd-socket-proxyd",
+        "/usr/libexec/systemd/systemd-socket-proxyd",
+    ] {
+        if Path::new(candidate).is_file() {
+            return Ok(candidate.to_string());
+        }
+    }
+
+    bail!(
+        "systemd-socket-proxyd not found; install systemd package providing it or set NANOSCALE_SOCKET_PROXYD_BIN"
+    )
 }
 
 fn backend_port(front_port: u16) -> Result<u16> {

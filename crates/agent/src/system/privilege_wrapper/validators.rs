@@ -126,27 +126,44 @@ fn validate_mv_args(args: &[&str]) -> Result<()> {
 }
 
 fn validate_chown_args(args: &[&str]) -> Result<()> {
-    if args.len() != 3 || args[0] != "-R" {
-        return Err(anyhow!("chown arguments are not allowed: {args:?}"));
+    if args.len() == 3 && args[0] == "-R" {
+        let owner = args[1];
+        let destination = args[2];
+
+        let owner_allowed = if let Some((user, group)) = owner.split_once(':') {
+            user.starts_with("nanoscale-") && group.starts_with("nanoscale-")
+        } else {
+            false
+        };
+
+        let destination_allowed = destination.starts_with("/opt/nanoscale/sites/nanoscale-")
+            || destination.starts_with("/opt/nanoscale/sites/");
+
+        if owner_allowed && destination_allowed {
+            return Ok(());
+        }
     }
 
-    let owner = args[1];
-    let destination = args[2];
-
-    let owner_allowed = if let Some((user, group)) = owner.split_once(':') {
-        user.starts_with("nanoscale-") && group.starts_with("nanoscale-")
-    } else {
-        false
-    };
-
-    let destination_allowed = destination.starts_with("/opt/nanoscale/sites/nanoscale-")
-        || destination.starts_with("/opt/nanoscale/sites/");
-
-    if owner_allowed && destination_allowed {
-        return Ok(());
+    if args.len() == 2 && args[0] == "root:root" {
+        let target = args[1];
+        if systemd_unit_target_allowed(target) {
+            return Ok(());
+        }
     }
 
     Err(anyhow!("chown arguments are not allowed: {args:?}"))
+}
+
+fn systemd_unit_target_allowed(target: &str) -> bool {
+    if target.contains("..") {
+        return false;
+    }
+
+    if !target.starts_with("/etc/systemd/system/nanoscale-") {
+        return false;
+    }
+
+    target.ends_with(".service") || target.ends_with(".socket")
 }
 
 fn validate_rm_args(args: &[&str]) -> Result<()> {
@@ -263,6 +280,37 @@ mod tests {
 
         assert!(validate_command_args(RM_BIN, &["-rf", "/etc/"]).is_err());
         assert!(validate_command_args(MV_BIN, &["/tmp/a", "/etc/passwd"]).is_err());
+    }
+
+    #[test]
+    fn validate_chown_allows_root_ownership_for_systemd_units() {
+        validate_command_args(
+            CHOWN_BIN,
+            &["root:root", "/etc/systemd/system/nanoscale-p1.service"],
+        )
+        .expect("chown service");
+
+        validate_command_args(
+            CHOWN_BIN,
+            &["root:root", "/etc/systemd/system/nanoscale-p1.socket"],
+        )
+        .expect("chown socket");
+
+        validate_command_args(
+            CHOWN_BIN,
+            &[
+                "root:root",
+                "/etc/systemd/system/nanoscale-p1-proxy@.service",
+            ],
+        )
+        .expect("chown proxy template");
+
+        assert!(validate_command_args(CHOWN_BIN, &["root:root", "/etc/passwd"]).is_err());
+        assert!(validate_command_args(
+            CHOWN_BIN,
+            &["root:root", "/etc/systemd/system/nanoscale-../p1.service"]
+        )
+        .is_err());
     }
 
     #[test]

@@ -21,7 +21,7 @@ impl Teardown {
     pub fn delete_project(project_id: &str, privilege_wrapper: &PrivilegeWrapper) -> Result<()> {
         let service_name = format!("nanoscale-{project_id}.service");
         let socket_name = format!("nanoscale-{project_id}.socket");
-        let proxy_name = format!("nanoscale-{project_id}-proxy@.service");
+        let proxy_name = format!("nanoscale-{project_id}-proxy.service");
 
         let service_unit_path = format!("{SYSTEMD_PATH}/{service_name}");
         let socket_unit_path = format!("{SYSTEMD_PATH}/{socket_name}");
