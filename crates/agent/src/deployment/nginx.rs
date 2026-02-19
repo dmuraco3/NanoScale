@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
 
@@ -9,6 +10,7 @@ use crate::deployment::tls::ACME_WEBROOT_PATH;
 
 const TMP_BASE_PATH: &str = "/opt/nanoscale/tmp";
 const NGINX_SITES_ENABLED: &str = "/etc/nginx/sites-enabled";
+const COLD_START_SOCKET_BACKUP_ENTRIES: usize = 8;
 
 #[derive(Debug)]
 pub struct NginxGenerator;
@@ -79,8 +81,10 @@ impl NginxGenerator {
     fn nginx_http_template(server_name: &str, port: u16) -> String {
         let backend_port = backend_port(port).unwrap_or(port);
         let upstream_name = format!("nanoscale_upstream_{port}");
+
+        let socket_backups = socket_backup_lines(port);
         format!(
-            "upstream {upstream_name} {{\n    server 127.0.0.1:{backend_port};\n    server 127.0.0.1:{port} backup;\n}}\n\nserver {{\n    listen 80;\n    server_name {server_name};\n\n    location ^~ /.well-known/acme-challenge/ {{\n        root {ACME_WEBROOT_PATH};\n    }}\n\n    location / {{\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n        proxy_next_upstream error timeout http_502 http_503 http_504;\n        proxy_next_upstream_tries 10;\n        proxy_next_upstream_timeout 10s;\n        proxy_connect_timeout 1s;\n        proxy_pass http://{upstream_name};\n    }}\n}}\n"
+            "upstream {upstream_name} {{\n    server 127.0.0.1:{backend_port};\n{socket_backups}}}\n\nserver {{\n    listen 80;\n    server_name {server_name};\n\n    location ^~ /.well-known/acme-challenge/ {{\n        root {ACME_WEBROOT_PATH};\n    }}\n\n    location / {{\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n        proxy_next_upstream error timeout http_502 http_503 http_504;\n        proxy_next_upstream_tries 20;\n        proxy_next_upstream_timeout 20s;\n        proxy_connect_timeout 2s;\n        proxy_pass http://{upstream_name};\n    }}\n}}\n"
         )
     }
 
@@ -90,10 +94,21 @@ impl NginxGenerator {
         let backend_port = backend_port(port).unwrap_or(port);
         let upstream_name = format!("nanoscale_upstream_{port}");
 
+        let socket_backups = socket_backup_lines(port);
+
         format!(
-            "upstream {upstream_name} {{\n    server 127.0.0.1:{backend_port};\n    server 127.0.0.1:{port} backup;\n}}\n\nserver {{\n    listen 80;\n    server_name {server_name};\n\n    location ^~ /.well-known/acme-challenge/ {{\n        root {ACME_WEBROOT_PATH};\n    }}\n\n    location / {{\n        return 301 https://$host$request_uri;\n    }}\n}}\n\nserver {{\n    listen 443 ssl;\n    server_name {server_name};\n\n    ssl_certificate {cert_path};\n    ssl_certificate_key {key_path};\n\n    location / {{\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n        proxy_next_upstream error timeout http_502 http_503 http_504;\n        proxy_next_upstream_tries 10;\n        proxy_next_upstream_timeout 10s;\n        proxy_connect_timeout 1s;\n        proxy_pass http://{upstream_name};\n    }}\n}}\n"
+            "upstream {upstream_name} {{\n    server 127.0.0.1:{backend_port};\n{socket_backups}}}\n\nserver {{\n    listen 80;\n    server_name {server_name};\n\n    location ^~ /.well-known/acme-challenge/ {{\n        root {ACME_WEBROOT_PATH};\n    }}\n\n    location / {{\n        return 301 https://$host$request_uri;\n    }}\n}}\n\nserver {{\n    listen 443 ssl;\n    server_name {server_name};\n\n    ssl_certificate {cert_path};\n    ssl_certificate_key {key_path};\n\n    location / {{\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n        proxy_next_upstream error timeout http_502 http_503 http_504;\n        proxy_next_upstream_tries 20;\n        proxy_next_upstream_timeout 20s;\n        proxy_connect_timeout 2s;\n        proxy_pass http://{upstream_name};\n    }}\n}}\n"
         )
     }
+}
+
+fn socket_backup_lines(port: u16) -> String {
+    let mut lines = String::new();
+    for _ in 0..COLD_START_SOCKET_BACKUP_ENTRIES {
+        writeln!(&mut lines, "    server 127.0.0.1:{port} backup;")
+            .expect("writing to String should not fail");
+    }
+    lines
 }
 
 fn backend_port(front_port: u16) -> Result<u16> {
