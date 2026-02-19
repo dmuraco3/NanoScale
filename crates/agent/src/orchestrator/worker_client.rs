@@ -7,6 +7,16 @@ use serde::{Deserialize, Serialize};
 use super::api_types::{CreateProjectRequest, WorkerCreateProjectRequest};
 
 #[derive(Debug, Serialize)]
+struct WorkerPortAvailabilityRequest {
+    port: u16,
+}
+
+#[derive(Debug, Deserialize)]
+struct WorkerPortAvailabilityResponse {
+    available: bool,
+}
+
+#[derive(Debug, Serialize)]
 struct WorkerStatsRequest {
     project_ids: Vec<String>,
 }
@@ -155,6 +165,41 @@ pub(super) async fn call_worker_stats(
     }
 
     Ok(response.json::<WorkerStatsResponse>().await?)
+}
+
+pub(super) async fn call_worker_port_available(
+    server_id: &str,
+    worker_host: &str,
+    secret_key: &str,
+    port: u16,
+) -> Result<bool> {
+    let payload = WorkerPortAvailabilityRequest { port };
+    let body = serde_json::to_vec(&payload)?;
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)?
+        .as_secs()
+        .to_string();
+    let signature = sign_internal_payload(&body, &timestamp, secret_key)?;
+    let url = format!("http://{worker_host}:4000/internal/ports/check");
+
+    let response = reqwest::Client::new()
+        .post(url)
+        .header("X-Cluster-Timestamp", timestamp)
+        .header("X-Cluster-Signature", signature)
+        .header("X-Server-Id", server_id)
+        .header("content-type", "application/json")
+        .body(body)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        anyhow::bail!("internal ports/check endpoint returned {status}: {body}");
+    }
+
+    let parsed = response.json::<WorkerPortAvailabilityResponse>().await?;
+    Ok(parsed.available)
 }
 
 fn sign_internal_payload(body: &[u8], timestamp: &str, secret_key: &str) -> Result<String> {

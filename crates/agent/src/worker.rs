@@ -71,6 +71,7 @@ pub async fn run(join_token: &str) -> Result<()> {
         .route("/internal/health", post(handlers::internal_health))
         .route("/internal/stats", post(handlers::internal_stats))
         .route("/internal/deploy", post(handlers::internal_deploy))
+        .route("/internal/ports/check", post(handlers::internal_port_check))
         .route("/internal/projects", post(handlers::internal_projects))
         .route(
             "/internal/projects/:id",

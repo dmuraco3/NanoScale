@@ -18,8 +18,8 @@ use crate::system::PrivilegeWrapper;
 
 use super::api_types::{
     CreateProjectPlaceholderResponse, DeployPlaceholderResponse, HealthResponse,
-    ProjectStatsResponse, StatsRequest, StatsResponse, StatsTotalsResponse,
-    WorkerCreateProjectRequest, WorkerState,
+    PortAvailabilityRequest, PortAvailabilityResponse, ProjectStatsResponse, StatsRequest,
+    StatsResponse, StatsTotalsResponse, WorkerCreateProjectRequest, WorkerState,
 };
 
 use crate::system::collect_host_stats;
@@ -81,6 +81,15 @@ pub(super) async fn internal_deploy() -> (StatusCode, Json<DeployPlaceholderResp
                 .to_string(),
         }),
     )
+}
+
+pub(super) async fn internal_port_check(
+    Json(payload): Json<PortAvailabilityRequest>,
+) -> (StatusCode, Json<PortAvailabilityResponse>) {
+    let bind_result = tokio::net::TcpListener::bind(("127.0.0.1", payload.port)).await;
+    let available = bind_result.is_ok();
+
+    (StatusCode::OK, Json(PortAvailabilityResponse { available }))
 }
 
 pub(super) async fn internal_delete_project(

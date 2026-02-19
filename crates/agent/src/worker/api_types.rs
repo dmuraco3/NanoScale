@@ -78,6 +78,16 @@ pub(super) struct CreateProjectPlaceholderResponse {
     pub(super) message: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub(super) struct PortAvailabilityRequest {
+    pub(super) port: u16,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct PortAvailabilityResponse {
+    pub(super) available: bool,
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct WorkerState {
     pub(super) monitored_projects: Arc<RwLock<Vec<MonitoredProject>>>,

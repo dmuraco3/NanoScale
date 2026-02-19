@@ -13,7 +13,9 @@ use super::api_types::{
 use super::auth::require_authenticated;
 use super::project_domain::assigned_project_domain;
 use super::project_mapping::{map_project_details_record, map_project_list_record};
-use super::worker_client::{call_worker_create_project, call_worker_delete_project};
+use super::worker_client::{
+    call_worker_create_project, call_worker_delete_project, call_worker_port_available,
+};
 use super::OrchestratorState;
 
 pub(super) async fn list_projects(
@@ -155,40 +157,73 @@ pub(super) async fn create_project(
 
     let project_id = Uuid::new_v4().to_string();
     let project_domain = assigned_project_domain(&state, &project_id, &payload.name).await?;
-    let project_port = match payload.port {
-        Some(requested_port) => {
-            let requested_port = i64::from(requested_port);
-            if requested_port < DbClient::min_project_port() {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    format!(
-                        "Requested port must be {} or higher",
-                        DbClient::min_project_port()
-                    ),
-                ));
-            }
 
-            let in_use = state
-                .db
-                .is_project_port_in_use(requested_port)
-                .await
-                .map_err(|error| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Unable to validate requested port: {error}"),
-                    )
-                })?;
-
-            if in_use {
-                return Err((
-                    StatusCode::CONFLICT,
-                    format!("Requested port {requested_port} is already in use"),
-                ));
-            }
-
-            requested_port
+    let worker_host = if connection.id == state.local_server_id {
+        "127.0.0.1"
+    } else {
+        &connection.ip_address
+    };
+    let project_port = if let Some(requested_port) = payload.port {
+        let requested_port = i64::from(requested_port);
+        if requested_port < DbClient::min_project_port() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "Requested port must be {} or higher",
+                    DbClient::min_project_port()
+                ),
+            ));
         }
-        None => state
+
+        let in_use = state
+            .db
+            .is_project_port_in_use(requested_port)
+            .await
+            .map_err(|error| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Unable to validate requested port: {error}"),
+                )
+            })?;
+
+        if in_use {
+            return Err((
+                StatusCode::CONFLICT,
+                format!("Requested port {requested_port} is already in use"),
+            ));
+        }
+
+        let requested_port_u16: u16 = requested_port.try_into().map_err(|_| {
+            (
+                StatusCode::BAD_REQUEST,
+                "Requested port is out of range".to_string(),
+            )
+        })?;
+
+        let is_available = call_worker_port_available(
+            &connection.id,
+            worker_host,
+            &connection.secret_key,
+            requested_port_u16,
+        )
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Unable to validate requested port on worker: {error}"),
+            )
+        })?;
+
+        if !is_available {
+            return Err((
+                StatusCode::CONFLICT,
+                format!("Requested port {requested_port} is already bound on the target server"),
+            ));
+        }
+
+        requested_port
+    } else {
+        let mut candidate = state
             .db
             .next_available_project_port()
             .await
@@ -197,7 +232,56 @@ pub(super) async fn create_project(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("Unable to allocate project port: {error}"),
                 )
-            })?,
+            })?;
+
+        // The DB can be out of sync with already-deployed systemd sockets/services (e.g.
+        // after a redeploy/reset). Probe the worker to find a bindable port.
+        for _ in 0..100 {
+            let candidate_u16: u16 = candidate.try_into().map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Allocated port is out of range".to_string(),
+                )
+            })?;
+
+            let in_use = state
+                .db
+                .is_project_port_in_use(candidate)
+                .await
+                .map_err(|error| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Unable to validate allocated port: {error}"),
+                    )
+                })?;
+
+            if in_use {
+                candidate += 1;
+                continue;
+            }
+
+            let is_available = call_worker_port_available(
+                &connection.id,
+                worker_host,
+                &connection.secret_key,
+                candidate_u16,
+            )
+            .await
+            .map_err(|error| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    format!("Unable to validate allocated port on worker: {error}"),
+                )
+            })?;
+
+            if is_available {
+                break;
+            }
+
+            candidate += 1;
+        }
+
+        candidate
     };
 
     let project = NewProject {
@@ -225,12 +309,6 @@ pub(super) async fn create_project(
             format!("Failed to persist project record: {error}"),
         )
     })?;
-
-    let worker_host = if connection.id == state.local_server_id {
-        "127.0.0.1"
-    } else {
-        &connection.ip_address
-    };
 
     if let Err(error) = call_worker_create_project(
         &connection.id,
