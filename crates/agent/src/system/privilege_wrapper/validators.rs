@@ -31,7 +31,7 @@ fn validate_systemctl_args(args: &[&str]) -> Result<()> {
         && matches!(args[0], "enable" | "disable")
         && args[1] == "--now"
         && args[2].starts_with("nanoscale-")
-        && args[2].ends_with(".service")
+        && (args[2].ends_with(".service") || args[2].ends_with(".socket"))
     {
         return Ok(());
     }
@@ -45,7 +45,7 @@ fn validate_systemctl_args(args: &[&str]) -> Result<()> {
         && args[1].starts_with("--property=")
         && args[2] == "--value"
         && args[3].starts_with("nanoscale-")
-        && args[3].ends_with(".service")
+        && (args[3].ends_with(".service") || args[3].ends_with(".socket"))
     {
         return Ok(());
     }
@@ -54,7 +54,7 @@ fn validate_systemctl_args(args: &[&str]) -> Result<()> {
         && args[0] == "show"
         && args[1].starts_with("--property=")
         && args[2].starts_with("nanoscale-")
-        && args[2].ends_with(".service")
+        && (args[2].ends_with(".service") || args[2].ends_with(".socket"))
     {
         return Ok(());
     }
@@ -206,6 +206,8 @@ mod tests {
         validate_command_args(SYSTEMCTL_BIN, &["daemon-reload"]).expect("daemon-reload");
         validate_command_args(SYSTEMCTL_BIN, &["enable", "--now", "nanoscale-p1.service"])
             .expect("enable service");
+        validate_command_args(SYSTEMCTL_BIN, &["enable", "--now", "nanoscale-p1.socket"])
+            .expect("enable socket");
         validate_command_args(SYSTEMCTL_BIN, &["status", "nanoscale-agent"]).expect("status");
         validate_command_args(
             SYSTEMCTL_BIN,
@@ -217,6 +219,17 @@ mod tests {
             ],
         )
         .expect("show --value");
+
+        validate_command_args(
+            SYSTEMCTL_BIN,
+            &[
+                "show",
+                "--property=NConnections",
+                "--value",
+                "nanoscale-p1.socket",
+            ],
+        )
+        .expect("show socket NConnections");
     }
 
     #[test]

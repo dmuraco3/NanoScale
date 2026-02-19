@@ -8,6 +8,7 @@ use crate::system::PrivilegeWrapper;
 
 const TMP_BASE_PATH: &str = "/opt/nanoscale/tmp";
 const SYSTEMD_TARGET_PATH: &str = "/etc/systemd/system";
+const SOCKET_PROXYD_BIN: &str = "/lib/systemd/systemd-socket-proxyd";
 
 #[derive(Debug)]
 pub struct SystemdGenerator;
@@ -27,8 +28,13 @@ impl SystemdGenerator {
         privilege_wrapper: &PrivilegeWrapper,
     ) -> Result<()> {
         let service_name = format!("nanoscale-{project_id}");
+
+        let backend_port = backend_port(port)?;
+
         let tmp_service_path = PathBuf::from(format!("{TMP_BASE_PATH}/{service_name}.service"));
         let tmp_socket_path = PathBuf::from(format!("{TMP_BASE_PATH}/{service_name}.socket"));
+        let tmp_proxy_path =
+            PathBuf::from(format!("{TMP_BASE_PATH}/{service_name}-proxy@.service"));
 
         if let Some(parent_dir) = tmp_service_path.parent() {
             fs::create_dir_all(parent_dir)?;
@@ -44,28 +50,40 @@ impl SystemdGenerator {
             source_dir_string,
             runtime,
             run_command,
-            port,
+            backend_port,
         )?;
         let socket_template = Self::socket_template(&service_name, port);
+        let proxy_template = Self::proxy_service_template(&service_name, backend_port);
 
         fs::write(&tmp_service_path, service_template)?;
         fs::write(&tmp_socket_path, socket_template)?;
+        fs::write(&tmp_proxy_path, proxy_template)?;
 
         let service_target = format!("{SYSTEMD_TARGET_PATH}/{service_name}.service");
         let socket_target = format!("{SYSTEMD_TARGET_PATH}/{service_name}.socket");
+        let proxy_target = format!("{SYSTEMD_TARGET_PATH}/{service_name}-proxy@.service");
         let tmp_service_string = tmp_service_path
             .to_str()
             .ok_or_else(|| anyhow!("invalid temp service path"))?;
         let tmp_socket_string = tmp_socket_path
             .to_str()
             .ok_or_else(|| anyhow!("invalid temp socket path"))?;
+        let tmp_proxy_string = tmp_proxy_path
+            .to_str()
+            .ok_or_else(|| anyhow!("invalid temp proxy path"))?;
 
         privilege_wrapper.run("/usr/bin/mv", &[tmp_service_string, &service_target])?;
         privilege_wrapper.run("/usr/bin/mv", &[tmp_socket_string, &socket_target])?;
+        privilege_wrapper.run("/usr/bin/mv", &[tmp_proxy_string, &proxy_target])?;
         privilege_wrapper.run("/usr/bin/systemctl", &["daemon-reload"])?;
         privilege_wrapper.run(
             "/usr/bin/systemctl",
             &["enable", "--now", &format!("{service_name}.service")],
+        )?;
+
+        privilege_wrapper.run(
+            "/usr/bin/systemctl",
+            &["enable", "--now", &format!("{service_name}.socket")],
         )?;
 
         Ok(())
@@ -173,9 +191,25 @@ impl SystemdGenerator {
 
     fn socket_template(service_name: &str, port: u16) -> String {
         format!(
-            "[Unit]\nDescription=NanoScale app socket ({service_name})\nPartOf={service_name}.service\n\n[Socket]\nListenStream=127.0.0.1:{port}\nNoDelay=true\n\n[Install]\nWantedBy=sockets.target\n"
+            "[Unit]\nDescription=NanoScale app socket ({service_name})\n\n[Socket]\nListenStream=127.0.0.1:{port}\nAccept=yes\nNoDelay=true\nService={service_name}-proxy@.service\n\n[Install]\nWantedBy=sockets.target\n"
         )
     }
+
+    fn proxy_service_template(service_name: &str, backend_port: u16) -> String {
+        format!(
+            "[Unit]\nDescription=NanoScale app connection proxy (%i) ({service_name})\nAfter=network.target\n\n[Service]\nType=simple\nExecStartPre=/usr/bin/systemctl start {service_name}.service\nExecStart={SOCKET_PROXYD_BIN} 127.0.0.1:{backend_port}\n\n# Keep per-connection proxy lightweight; systemd will respawn per new connection.\n"
+        )
+    }
+}
+
+fn backend_port(front_port: u16) -> Result<u16> {
+    let candidate = u32::from(front_port) + 10_000;
+    if candidate > u32::from(u16::MAX) {
+        bail!("cannot derive backend port from {front_port}; {candidate} exceeds 65535");
+    }
+
+    u16::try_from(candidate)
+        .map_err(|error| anyhow!("cannot derive backend port from {front_port}: {error}"))
 }
 
 #[cfg(test)]
@@ -244,5 +278,10 @@ mod tests {
     fn socket_template_contains_listen_port() {
         let template = SystemdGenerator::socket_template("nanoscale-p1", 3100);
         assert!(template.contains("ListenStream=127.0.0.1:3100"));
+    }
+
+    #[test]
+    fn backend_port_offsets_by_10k() {
+        assert_eq!(backend_port(3100).expect("backend_port"), 13_100);
     }
 }

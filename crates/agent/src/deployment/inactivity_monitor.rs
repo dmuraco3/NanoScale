@@ -1,6 +1,7 @@
+use std::collections::HashMap;
 use std::fs;
-use std::process::Command;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use tokio::sync::RwLock;
@@ -20,11 +21,15 @@ pub struct MonitoredProject {
 #[derive(Clone, Debug)]
 pub struct InactivityMonitor {
     projects: Arc<RwLock<Vec<MonitoredProject>>>,
+    traffic_state: Arc<Mutex<HashMap<String, TrafficState>>>,
 }
 
 impl InactivityMonitor {
     pub fn new(projects: Arc<RwLock<Vec<MonitoredProject>>>) -> Self {
-        Self { projects }
+        Self {
+            projects,
+            traffic_state: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
 
     pub fn spawn(self) {
@@ -42,8 +47,9 @@ impl InactivityMonitor {
                     }
 
                     let project_for_check = project.clone();
+                    let traffic_state = self.traffic_state.clone();
                     let check_result = tokio::task::spawn_blocking(move || {
-                        should_stop_service(&project_for_check)
+                        should_stop_service(&project_for_check, &traffic_state)
                     })
                     .await;
 
@@ -76,55 +82,106 @@ impl InactivityMonitor {
     }
 }
 
-fn should_stop_service(project: &MonitoredProject) -> anyhow::Result<bool> {
+fn should_stop_service(
+    project: &MonitoredProject,
+    traffic_state: &Arc<Mutex<HashMap<String, TrafficState>>>,
+) -> anyhow::Result<bool> {
     let privilege_wrapper = PrivilegeWrapper::new();
 
-    let _ = privilege_wrapper.run(
+    let active_state_output = privilege_wrapper.run(
         "/usr/bin/systemctl",
         &[
             "show",
-            "--property=ActiveEnterTimestamp",
-            &project.service_name,
-        ],
-    )?;
-
-    let active_since_mono_output = privilege_wrapper.run(
-        "/usr/bin/systemctl",
-        &[
-            "show",
-            "--property=ActiveEnterTimestampMonotonic",
+            "--property=ActiveState",
             "--value",
             &project.service_name,
         ],
     )?;
 
-    let active_since_micros = String::from_utf8_lossy(&active_since_mono_output.stdout)
+    let active_state = String::from_utf8_lossy(&active_state_output.stdout)
         .trim()
-        .parse::<u64>()
-        .unwrap_or(0);
+        .to_string();
 
-    if active_since_micros == 0 {
+    if active_state != "active" {
         return Ok(false);
     }
 
-    let current_uptime_seconds = read_uptime_seconds().unwrap_or(0);
-    let current_uptime_micros = current_uptime_seconds.saturating_mul(1_000_000);
+    let now_uptime_seconds = read_uptime_seconds().unwrap_or(0);
+    if now_uptime_seconds == 0 {
+        return Ok(false);
+    }
 
-    let uptime_micros = current_uptime_micros.saturating_sub(active_since_micros);
-    let uptime_seconds = uptime_micros / 1_000_000;
+    let socket_unit_name = service_unit_to_socket_unit(&project.service_name);
+    let nconnections = match read_socket_nconnections(&privilege_wrapper, &socket_unit_name) {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!(
+                "scale-to-zero read socket connections failed for {}: {error}",
+                project.service_name
+            );
+            return Ok(false);
+        }
+    };
 
-    let ss_output = Command::new("ss")
-        .arg("-tn")
-        .arg("src")
-        .arg(format!(":{}", project.port))
-        .output()?;
+    let mut state_guard = traffic_state
+        .lock()
+        .map_err(|_| anyhow::anyhow!("traffic_state mutex poisoned"))?;
 
-    let connection_lines = String::from_utf8_lossy(&ss_output.stdout)
-        .lines()
-        .count()
-        .saturating_sub(1);
+    let entry = state_guard
+        .entry(project.service_name.clone())
+        .or_insert_with(|| TrafficState {
+            last_nconnections: nconnections,
+            last_activity_uptime_seconds: now_uptime_seconds,
+        });
 
-    Ok(connection_lines == 0 && uptime_seconds > INACTIVITY_THRESHOLD_SECONDS)
+    if nconnections != entry.last_nconnections {
+        entry.last_nconnections = nconnections;
+        entry.last_activity_uptime_seconds = now_uptime_seconds;
+    }
+
+    let inactive_for_seconds =
+        now_uptime_seconds.saturating_sub(entry.last_activity_uptime_seconds);
+    Ok(inactive_for_seconds > INACTIVITY_THRESHOLD_SECONDS)
+}
+
+#[derive(Clone, Copy, Debug)]
+struct TrafficState {
+    last_nconnections: u64,
+    last_activity_uptime_seconds: u64,
+}
+
+fn service_unit_to_socket_unit(service_unit_name: &str) -> String {
+    if let Some(stem) = service_unit_name.strip_suffix(".service") {
+        format!("{stem}.socket")
+    } else {
+        format!("{service_unit_name}.socket")
+    }
+}
+
+fn read_socket_nconnections(
+    privilege_wrapper: &PrivilegeWrapper,
+    socket_unit_name: &str,
+) -> anyhow::Result<u64> {
+    let output = privilege_wrapper.run(
+        "/usr/bin/systemctl",
+        &[
+            "show",
+            "--property=NConnections",
+            "--value",
+            socket_unit_name,
+        ],
+    )?;
+
+    let raw = String::from_utf8_lossy(&output.stdout);
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("empty NConnections output")
+    }
+
+    let parsed = trimmed
+        .parse::<u64>()
+        .map_err(|error| anyhow::anyhow!("invalid NConnections '{trimmed}': {error}"))?;
+    Ok(parsed)
 }
 
 fn read_uptime_seconds() -> Option<u64> {

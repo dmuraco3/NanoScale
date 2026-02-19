@@ -21,9 +21,11 @@ impl Teardown {
     pub fn delete_project(project_id: &str, privilege_wrapper: &PrivilegeWrapper) -> Result<()> {
         let service_name = format!("nanoscale-{project_id}.service");
         let socket_name = format!("nanoscale-{project_id}.socket");
+        let proxy_name = format!("nanoscale-{project_id}-proxy@.service");
 
         let service_unit_path = format!("{SYSTEMD_PATH}/{service_name}");
         let socket_unit_path = format!("{SYSTEMD_PATH}/{socket_name}");
+        let proxy_unit_path = format!("{SYSTEMD_PATH}/{proxy_name}");
         let service_wants_path = format!("{SYSTEMD_PATH}/multi-user.target.wants/{service_name}");
         let socket_wants_path = format!("{SYSTEMD_PATH}/sockets.target.wants/{socket_name}");
         let nginx_conf_path = format!("{NGINX_ENABLED_PATH}/nanoscale-{project_id}.conf");
@@ -32,9 +34,12 @@ impl Teardown {
 
         let _ = privilege_wrapper.run("/usr/bin/systemctl", &["stop", &service_name]);
         let _ = privilege_wrapper.run("/usr/bin/systemctl", &["disable", "--now", &service_name]);
+        let _ = privilege_wrapper.run("/usr/bin/systemctl", &["stop", &socket_name]);
+        let _ = privilege_wrapper.run("/usr/bin/systemctl", &["disable", "--now", &socket_name]);
 
         Self::remove_file_if_exists(privilege_wrapper, &service_unit_path)?;
         Self::remove_file_if_exists(privilege_wrapper, &socket_unit_path)?;
+        Self::remove_file_if_exists(privilege_wrapper, &proxy_unit_path)?;
         Self::remove_file_if_exists(privilege_wrapper, &service_wants_path)?;
         Self::remove_file_if_exists(privilege_wrapper, &socket_wants_path)?;
 
