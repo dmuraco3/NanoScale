@@ -9,7 +9,7 @@ impl DbClient {
     /// Returns an error if the insert fails.
     pub async fn insert_project(&self, project: &NewProject) -> Result<()> {
         sqlx::query(
-            "INSERT INTO projects (id, server_id, name, repo_url, branch, install_command, build_command, start_command, env_vars, port, domain) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            "INSERT INTO projects (id, server_id, name, repo_url, branch, install_command, build_command, start_command, output_directory, env_vars, port, domain) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         )
         .bind(&project.id)
         .bind(&project.server_id)
@@ -19,6 +19,7 @@ impl DbClient {
         .bind(&project.install_command)
         .bind(&project.build_command)
         .bind(&project.start_command)
+        .bind(&project.output_directory)
         .bind(&project.env_vars)
         .bind(project.port)
         .bind(project.domain.as_deref())
@@ -108,13 +109,15 @@ impl DbClient {
                 String,
                 String,
                 String,
+                String,
+                String,
                 i64,
                 Option<String>,
                 String,
                 Option<String>,
             ),
         >(
-            "SELECT p.id, p.server_id, p.name, p.repo_url, p.branch, p.install_command, p.build_command, p.start_command, p.port, p.domain, p.created_at, s.name FROM projects p LEFT JOIN servers s ON s.id = p.server_id WHERE p.id = ?1",
+            "SELECT p.id, p.server_id, p.name, p.repo_url, p.branch, p.install_command, p.build_command, p.start_command, p.output_directory, p.env_vars, p.port, p.domain, p.created_at, s.name FROM projects p LEFT JOIN servers s ON s.id = p.server_id WHERE p.id = ?1",
         )
         .bind(project_id)
         .fetch_optional(&self.pool)
@@ -130,6 +133,8 @@ impl DbClient {
                 install_command,
                 build_command,
                 start_command,
+                output_directory,
+                env_vars,
                 port,
                 domain,
                 created_at,
@@ -143,6 +148,8 @@ impl DbClient {
                 install_command,
                 build_command,
                 start_command,
+                output_directory,
+                env_vars,
                 port,
                 domain,
                 created_at,

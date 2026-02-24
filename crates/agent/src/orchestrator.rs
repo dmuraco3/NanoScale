@@ -119,6 +119,10 @@ pub async fn run() -> Result<()> {
             get(projects::get_project).delete(projects::delete_project),
         )
         .route(
+            "/api/projects/:id/redeploy",
+            post(projects::redeploy_project),
+        )
+        .route(
             "/api/cluster/generate-token",
             post(cluster::generate_cluster_token),
         )

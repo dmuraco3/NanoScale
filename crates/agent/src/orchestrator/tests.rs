@@ -359,6 +359,8 @@ fn project_mapping_preserves_fields_and_sets_deployed_status() {
         install_command: "bun install".to_string(),
         build_command: "bun run build".to_string(),
         start_command: "bun run start".to_string(),
+        output_directory: ".next/standalone".to_string(),
+        env_vars: "[]".to_string(),
         port: 3100,
         domain: None,
         created_at: "now".to_string(),

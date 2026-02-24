@@ -4,11 +4,11 @@ import { ArrowLeft, GitBranch, ExternalLink, Clock, Server, Network } from "luci
 import { AuthGuard } from "@/components/auth-guard";
 import { DashboardLayout } from "@/components/layout";
 import { Card, CardHeader, CardTitle, CardContent, Badge, Button } from "@/components/ui";
-import { deleteProjectById, fetchProjectById } from "@/lib/projects-api";
+import { deleteProjectById, fetchProjectById, redeployProjectById } from "@/lib/projects-api";
 
 interface ProjectDetailsPageProps {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ deleteError?: string }>;
+  searchParams?: Promise<{ deleteError?: string; redeployError?: string }>;
 }
 
 async function ProjectDetailsPage(props: ProjectDetailsPageProps) {
@@ -40,6 +40,17 @@ async function ProjectDetailsPage(props: ProjectDetailsPageProps) {
     }
 
     redirect("/projects");
+  }
+
+  async function redeployProjectAction() {
+    "use server";
+
+    const redeployResult = await redeployProjectById(id);
+    if (!redeployResult.ok) {
+      redirect(`/projects/${id}?redeployError=${encodeURIComponent(redeployResult.message)}`);
+    }
+
+    redirect(`/projects/${id}`);
   }
 
   if (!project) {
@@ -79,9 +90,9 @@ async function ProjectDetailsPage(props: ProjectDetailsPageProps) {
           <Button variant="outline">
             View Logs
           </Button>
-          <Button>
-            Redeploy
-          </Button>
+          <form action={redeployProjectAction}>
+            <Button type="submit">Redeploy</Button>
+          </form>
         </div>
       </div>
 
@@ -89,6 +100,14 @@ async function ProjectDetailsPage(props: ProjectDetailsPageProps) {
         <Card className="mb-6 border-[var(--error)]">
           <CardContent>
             <p className="text-sm text-[var(--error)]">{searchParams.deleteError}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {searchParams?.redeployError && (
+        <Card className="mb-6 border-[var(--error)]">
+          <CardContent>
+            <p className="text-sm text-[var(--error)]">{searchParams.redeployError}</p>
           </CardContent>
         </Card>
       )}

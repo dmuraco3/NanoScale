@@ -20,6 +20,7 @@ fn new_project(id: &str, server_id: &str, port: i64, domain: Option<&str>) -> Ne
         install_command: "bun install".to_string(),
         build_command: "bun run build".to_string(),
         start_command: "bun run start".to_string(),
+        output_directory: ".next/standalone".to_string(),
         env_vars: "[]".to_string(),
         port,
         domain: domain.map(ToString::to_string),

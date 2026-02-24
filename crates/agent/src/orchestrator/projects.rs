@@ -8,7 +8,8 @@ use uuid::Uuid;
 use crate::db::{DbClient, NewProject};
 
 use super::api_types::{
-    CreateProjectRequest, CreateProjectResponse, ProjectDetailsResponse, ProjectListItem,
+    CreateProjectRequest, CreateProjectResponse, ProjectDetailsResponse, ProjectEnvVar,
+    ProjectListItem,
 };
 use super::auth::require_authenticated;
 use super::project_domain::assigned_project_domain;
@@ -17,6 +18,97 @@ use super::worker_client::{
     call_worker_create_project, call_worker_delete_project, call_worker_port_available,
 };
 use super::OrchestratorState;
+
+pub(super) async fn redeploy_project(
+    State(state): State<OrchestratorState>,
+    session: Session,
+    AxumPath(project_id): AxumPath<String>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    require_authenticated(&session)
+        .await
+        .map_err(|status| (status, "Authentication required".to_string()))?;
+
+    let project = state
+        .db
+        .get_project_by_id(&project_id)
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Unable to load project: {error}"),
+            )
+        })?
+        .ok_or((StatusCode::NOT_FOUND, "Project not found".to_string()))?;
+
+    let connection = state
+        .db
+        .get_server_connection_info(&project.server_id)
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Unable to load server connection info: {error}"),
+            )
+        })?
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            "Project host server was not found".to_string(),
+        ))?;
+
+    let worker_host = if connection.id == state.local_server_id {
+        "127.0.0.1"
+    } else {
+        &connection.ip_address
+    };
+
+    let env_vars =
+        serde_json::from_str::<Vec<ProjectEnvVar>>(&project.env_vars).map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to deserialize env vars: {error}"),
+            )
+        })?;
+
+    let project_port: u16 = project.port.try_into().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Project port out of range: {}", project.port),
+        )
+    })?;
+
+    let payload = CreateProjectRequest {
+        server_id: project.server_id.clone(),
+        name: project.name.clone(),
+        repo_url: project.repo_url.clone(),
+        branch: project.branch.clone(),
+        build_command: project.build_command.clone(),
+        install_command: project.install_command.clone(),
+        run_command: project.start_command.clone(),
+        output_directory: project.output_directory.clone(),
+        port: Some(project_port),
+        env_vars,
+    };
+
+    if let Err(error) = call_worker_create_project(
+        &connection.id,
+        worker_host,
+        &connection.secret_key,
+        &payload,
+        &project_id,
+        project.domain.as_deref(),
+        project_port,
+        state.tls_email.as_deref(),
+    )
+    .await
+    {
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            format!("Worker deployment call failed: {error}"),
+        ));
+    }
+
+    Ok(StatusCode::ACCEPTED)
+}
 
 pub(super) async fn list_projects(
     State(state): State<OrchestratorState>,
@@ -293,6 +385,7 @@ pub(super) async fn create_project(
         install_command: payload.install_command.clone(),
         build_command: payload.build_command.clone(),
         start_command: payload.run_command.clone(),
+        output_directory: payload.output_directory.clone(),
         env_vars: serde_json::to_string(&payload.env_vars).map_err(|error| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
