@@ -89,6 +89,20 @@ pub(super) async fn redeploy_project(
         env_vars,
     };
 
+    if let Err(error) = call_worker_delete_project(
+        &connection.id,
+        worker_host,
+        &connection.secret_key,
+        &project_id,
+    )
+    .await
+    {
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            format!("Worker cleanup call failed: {error}"),
+        ));
+    }
+
     if let Err(error) = call_worker_create_project(
         &connection.id,
         worker_host,

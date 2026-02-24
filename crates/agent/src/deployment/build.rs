@@ -60,7 +60,7 @@ impl BuildSystem {
         let artifact_source_dir =
             Self::resolve_output_directory(repo_dir, &settings.output_directory)?;
 
-        Self::replace_directory(&artifact_source_dir, &destination_dir)
+        Self::replace_directory(&artifact_source_dir, &destination_dir, privilege_wrapper)
             .map_err(|error| anyhow::anyhow!("artifact copy failed: {error:#}"))?;
 
         Self::ensure_sites_directory_traversable().map_err(|error| {
@@ -196,9 +196,22 @@ impl BuildSystem {
         )
     }
 
-    fn replace_directory(source_dir: &Path, destination_dir: &Path) -> Result<()> {
+    fn replace_directory(
+        source_dir: &Path,
+        destination_dir: &Path,
+        privilege_wrapper: &PrivilegeWrapper,
+    ) -> Result<()> {
         if destination_dir.exists() {
-            fs::remove_dir_all(destination_dir)?;
+            match fs::remove_dir_all(destination_dir) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                    let destination = destination_dir
+                        .to_str()
+                        .ok_or_else(|| anyhow::anyhow!("invalid destination path"))?;
+                    privilege_wrapper.run("/usr/bin/rm", &["-rf", destination])?;
+                }
+                Err(error) => return Err(error.into()),
+            }
         }
 
         if let Some(parent_dir) = destination_dir.parent() {
@@ -343,6 +356,7 @@ mod tests {
         let tempdir = tempfile::tempdir().expect("tempdir");
         let source = tempdir.path().join("source");
         let dest = tempdir.path().join("dest");
+        let privilege_wrapper = PrivilegeWrapper::new();
         std::fs::create_dir_all(&source).expect("mkdir source");
         std::fs::write(source.join("a.txt"), "hello").expect("write");
 
@@ -354,7 +368,7 @@ mod tests {
         let link_path = source.join("a-link");
         std::os::unix::fs::symlink(&link_target, &link_path).expect("symlink");
 
-        BuildSystem::replace_directory(&source, &dest).expect("replace");
+        BuildSystem::replace_directory(&source, &dest, &privilege_wrapper).expect("replace");
         assert_eq!(
             std::fs::read_to_string(dest.join("a.txt")).expect("read a.txt"),
             "hello"

@@ -32,7 +32,7 @@ const APP_PRESETS: AppPreset[] = [
     buildCommand: "bun run build",
     installCommand: "bun install --frozen-lockfile",
     runCommand: "bun run start",
-    outputDirectory: ".next/standalone",
+    outputDirectory: ".",
   },
 ];
 
