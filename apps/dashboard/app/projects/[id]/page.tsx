@@ -5,6 +5,8 @@ import { AuthGuard } from "@/components/auth-guard";
 import { DashboardLayout } from "@/components/layout";
 import { Card, CardHeader, CardTitle, CardContent, Badge, Button } from "@/components/ui";
 import { deleteProjectById, fetchProjectById, redeployProjectById } from "@/lib/projects-api";
+import RedeployButton from "./redeploy-button";
+import DeleteProjectForm from "./delete-project-form";
 
 interface ProjectDetailsPageProps {
   params: Promise<{ id: string }>;
@@ -90,9 +92,7 @@ async function ProjectDetailsPage(props: ProjectDetailsPageProps) {
           <Button variant="outline">
             View Logs
           </Button>
-          <form action={redeployProjectAction}>
-            <Button type="submit">Redeploy</Button>
-          </form>
+          <RedeployButton redeployAction={redeployProjectAction} />
         </div>
       </div>
 
@@ -196,39 +196,7 @@ async function ProjectDetailsPage(props: ProjectDetailsPageProps) {
         </CardContent>
       </Card>
 
-      <Card className="mb-8 border-[var(--error)]">
-        <CardHeader>
-          <CardTitle>Delete Project</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-[var(--foreground-secondary)] mb-4">
-            This action cannot be undone. To confirm, type
-            <span className="text-[var(--foreground)] font-medium"> {project.name}</span>
-            and click Delete Project.
-          </p>
-          <form action={deleteProjectAction} className="flex flex-col sm:flex-row gap-3 sm:items-end">
-            <div className="flex-1">
-              <label
-                htmlFor="confirmation-name"
-                className="block text-sm font-medium text-[var(--foreground)] mb-1.5"
-              >
-                Confirm project name
-              </label>
-              <input
-                id="confirmation-name"
-                name="confirmationName"
-                type="text"
-                required
-                placeholder={project.name}
-                className="w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--foreground-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:ring-offset-1 focus:ring-offset-[var(--background)]"
-              />
-            </div>
-            <Button type="submit" variant="danger">
-              Delete Project
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+      <DeleteProjectForm projectName={project.name} deleteAction={deleteProjectAction} />
 
       {/* Deployment history */}
       <Card>
