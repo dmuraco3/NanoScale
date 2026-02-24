@@ -1,10 +1,9 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { ArrowLeft, GitBranch, ExternalLink, Clock, Server, Network } from "lucide-react";
 import { AuthGuard } from "@/components/auth-guard";
 import { DashboardLayout } from "@/components/layout";
 import { Card, CardHeader, CardTitle, CardContent, Badge, Button } from "@/components/ui";
-import { deleteProjectById, fetchProjectById, redeployProjectById } from "@/lib/projects-api";
+import { fetchProjectById } from "@/lib/projects-api";
 import RedeployButton from "./redeploy-button";
 import DeleteProjectForm from "./delete-project-form";
 
@@ -24,36 +23,6 @@ async function ProjectDetailsPage(props: ProjectDetailsPageProps) {
       : `https://${project.domain}`
     : null;
 
-  async function deleteProjectAction(formData: FormData) {
-    "use server";
-
-    const confirmationName = formData.get("confirmationName");
-    const typedName = typeof confirmationName === "string" ? confirmationName.trim() : "";
-
-    if (typedName != project?.name) {
-      redirect(
-        `/projects/${id}?deleteError=${encodeURIComponent("Project name confirmation does not match")}`,
-      );
-    }
-
-    const deleteResult = await deleteProjectById(id);
-    if (!deleteResult.ok) {
-      redirect(`/projects/${id}?deleteError=${encodeURIComponent(deleteResult.message)}`);
-    }
-
-    redirect("/projects");
-  }
-
-  async function redeployProjectAction() {
-    "use server";
-
-    const redeployResult = await redeployProjectById(id);
-    if (!redeployResult.ok) {
-      redirect(`/projects/${id}?redeployError=${encodeURIComponent(redeployResult.message)}`);
-    }
-
-    redirect(`/projects/${id}`);
-  }
 
   if (!project) {
     return (
@@ -92,7 +61,7 @@ async function ProjectDetailsPage(props: ProjectDetailsPageProps) {
           <Button variant="outline">
             View Logs
           </Button>
-          <RedeployButton redeployAction={redeployProjectAction} />
+          <RedeployButton projectId={project.id}/>
         </div>
       </div>
 
@@ -196,7 +165,7 @@ async function ProjectDetailsPage(props: ProjectDetailsPageProps) {
         </CardContent>
       </Card>
 
-      <DeleteProjectForm projectName={project.name} deleteAction={deleteProjectAction} />
+      <DeleteProjectForm projectName={project.name} projectId={project.id} />
 
       {/* Deployment history */}
       <Card>

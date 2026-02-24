@@ -2,17 +2,18 @@
 
 import { useTransition } from "react";
 import { Button } from "@/components/ui";
+import { redeployProjectAction } from "./actions";
 
 interface RedeployButtonProps {
-  redeployAction: () => Promise<void>;
+  projectId: string
 }
 
-export default function RedeployButton({ redeployAction }: RedeployButtonProps) {
+export default function RedeployButton({ projectId }: RedeployButtonProps) {
   const [isPending, startTransition] = useTransition();
 
   function handleClick() {
     startTransition(async () => {
-      await redeployAction();
+      await redeployProjectAction(projectId);
     });
   }
 

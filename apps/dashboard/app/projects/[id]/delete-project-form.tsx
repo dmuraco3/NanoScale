@@ -2,18 +2,29 @@
 
 import { useTransition } from "react";
 import { Card, CardHeader, CardTitle, CardContent, Button } from "@/components/ui";
+import { deleteProjectAction } from "./actions";
+import { redirect } from "next/navigation";
 
 interface DeleteProjectFormProps {
   projectName: string;
-  deleteAction: (formData: FormData) => Promise<void>;
+  projectId: string;
 }
 
-export default function DeleteProjectForm({ projectName, deleteAction }: DeleteProjectFormProps) {
+export default function DeleteProjectForm({ projectName, projectId }: DeleteProjectFormProps) {
   const [isPending, startTransition] = useTransition();
 
   function handleSubmit(formData: FormData) {
+    const confirmationName = formData.get("confirmationName");
+    const typedName = typeof confirmationName === "string" ? confirmationName.trim() : "";
+
+    if (typedName != projectName) {
+      redirect(
+        `/projects/${projectId}?deleteError=${encodeURIComponent("Project name confirmation does not match")}`,
+      );
+    }
+
     startTransition(async () => {
-      await deleteAction(formData);
+      await deleteProjectAction(projectId);
     });
   }
 
