@@ -10,7 +10,9 @@ use uuid::Uuid;
 
 use crate::db::NewUser;
 
-use super::api_types::{AuthStatusResponse, LoginRequest, SetupRequest};
+use super::api_types::{
+    AuthStatusResponse, ChangeCredentialsRequest, LoginRequest, SetupRequest,
+};
 use super::OrchestratorState;
 
 const SESSION_USER_ID_KEY: &str = "user_id";
@@ -118,6 +120,30 @@ pub(super) async fn auth_status(
 
 pub(super) async fn auth_session(session: Session) -> Result<StatusCode, StatusCode> {
     require_authenticated(&session).await?;
+    Ok(StatusCode::OK)
+}
+
+pub(super) async fn auth_change_credentials(
+    State(state): State<OrchestratorState>,
+    session: Session,
+    Json(payload): Json<ChangeCredentialsRequest>,
+) -> Result<StatusCode, StatusCode> {
+    let user_id = current_user_id(&session).await?;
+    validate_setup_credentials(&payload.username, &payload.password)?;
+
+    let username = payload.username.trim().to_string();
+    let salt = SaltString::generate(&mut OsRng);
+    let password_hash = Argon2::default()
+        .hash_password(payload.password.as_bytes(), &salt)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .to_string();
+
+    state
+        .db
+        .update_user_credentials(&user_id, &username, &password_hash)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
     Ok(StatusCode::OK)
 }
 

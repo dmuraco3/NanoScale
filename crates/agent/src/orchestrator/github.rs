@@ -1135,7 +1135,9 @@ async fn sync_repositories_for_installation(
     Ok(())
 }
 
-async fn fetch_user_installations(token: &str) -> Result<Vec<InstallationItem>, (StatusCode, String)> {
+async fn fetch_user_installations(
+    token: &str,
+) -> Result<Vec<InstallationItem>, (StatusCode, String)> {
     let client = reqwest::Client::new();
     let mut page = 1_usize;
     let mut installations = Vec::new();

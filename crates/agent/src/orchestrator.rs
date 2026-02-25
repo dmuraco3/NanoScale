@@ -120,6 +120,10 @@ pub async fn run() -> Result<()> {
         .route("/api/auth/status", post(auth::auth_status))
         .route("/api/auth/session", post(auth::auth_session))
         .route(
+            "/api/auth/change-credentials",
+            post(auth::auth_change_credentials),
+        )
+        .route(
             "/api/integrations/github/status",
             get(github::github_status),
         )

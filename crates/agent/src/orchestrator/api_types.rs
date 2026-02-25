@@ -12,6 +12,12 @@ pub(super) struct LoginRequest {
     pub(super) password: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub(super) struct ChangeCredentialsRequest {
+    pub(super) username: String,
+    pub(super) password: String,
+}
+
 #[derive(Debug, Serialize)]
 pub(super) struct AuthStatusResponse {
     pub(super) users_count: i64,

@@ -44,4 +44,24 @@ impl DbClient {
 
         Ok(row.map(|(id, password_hash)| UserRecord { id, password_hash }))
     }
+
+    /// Updates a user's username and password hash.
+    ///
+    /// # Errors
+    /// Returns an error if the update query fails.
+    pub async fn update_user_credentials(
+        &self,
+        user_id: &str,
+        username: &str,
+        password_hash: &str,
+    ) -> Result<()> {
+        sqlx::query("UPDATE users SET username = ?1, password_hash = ?2 WHERE id = ?3")
+            .bind(username)
+            .bind(password_hash)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
 }
