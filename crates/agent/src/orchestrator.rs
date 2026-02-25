@@ -15,6 +15,7 @@ use crate::cluster::token_store::TokenStore;
 use crate::config::NanoScaleConfig;
 use crate::db::{DbClient, NewServer};
 use crate::deployment::inactivity_monitor::{InactivityMonitor, MonitoredProject};
+use crate::request_logging;
 
 use self::stats_cache::StatsCache;
 
@@ -128,6 +129,9 @@ pub async fn run() -> Result<()> {
         )
         .route("/api/cluster/join", post(cluster::join_cluster))
         .nest("/internal", internal_router)
+        .route_layer(middleware::from_fn(
+            request_logging::log_orchestrator_request,
+        ))
         .layer(session_layer)
         .with_state(state);
 

@@ -9,6 +9,7 @@ use tokio::sync::RwLock;
 use crate::cluster::protocol::{JoinClusterRequest, JoinClusterResponse};
 use crate::config::NanoScaleConfig;
 use crate::deployment::inactivity_monitor::InactivityMonitor;
+use crate::request_logging;
 use crate::system::PrivilegeWrapper;
 
 mod api_types;
@@ -77,6 +78,9 @@ pub async fn run(join_token: &str) -> Result<()> {
             "/internal/projects/:id",
             delete(handlers::internal_delete_project),
         )
+        .route_layer(axum::middleware::from_fn(
+            request_logging::log_worker_request,
+        ))
         .with_state(worker_state);
 
     let listener = tokio::net::TcpListener::bind(&worker_bind).await?;
