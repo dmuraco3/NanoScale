@@ -15,6 +15,8 @@ export interface ProjectListItem {
   run_command: string;
   port: number;
   domain: string | null;
+  source_provider: string;
+  source_repo_id: number | null;
   status: string;
   created_at: string;
 }
@@ -32,7 +34,15 @@ export interface ProjectDetailsItem {
   status: string;
   port: number;
   domain: string | null;
+  source_provider: string;
+  source_repo_id: number | null;
   created_at: string;
+}
+
+export interface GitHubProjectSource {
+  installation_id: number;
+  repo_id: number;
+  selected_branch: string;
 }
 
 export interface CreateProjectPayload {
@@ -46,6 +56,7 @@ export interface CreateProjectPayload {
   output_directory: string;
   port?: number;
   env_vars: ProjectEnvVar[];
+  github_source?: GitHubProjectSource;
 }
 
 export interface CreateProjectResponse {

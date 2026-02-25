@@ -80,6 +80,14 @@ pub(super) struct CreateProjectRequest {
     pub(super) output_directory: String,
     pub(super) port: Option<u16>,
     pub(super) env_vars: Vec<ProjectEnvVar>,
+    pub(super) github_source: Option<GitHubProjectSourceRequest>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct GitHubProjectSourceRequest {
+    pub(super) installation_id: i64,
+    pub(super) repo_id: i64,
+    pub(super) selected_branch: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -97,6 +105,8 @@ pub(super) struct ProjectListItem {
     pub(super) run_command: String,
     pub(super) port: i64,
     pub(super) domain: Option<String>,
+    pub(super) source_provider: String,
+    pub(super) source_repo_id: Option<i64>,
     pub(super) status: String,
     pub(super) created_at: String,
 }
@@ -115,7 +125,41 @@ pub(super) struct ProjectDetailsResponse {
     pub(super) status: String,
     pub(super) port: i64,
     pub(super) domain: Option<String>,
+    pub(super) source_provider: String,
+    pub(super) source_repo_id: Option<i64>,
     pub(super) created_at: String,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct GitHubStatusResponse {
+    pub(super) enabled: bool,
+    pub(super) configured: bool,
+    pub(super) connected: bool,
+    pub(super) github_login: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct GitHubStartResponse {
+    pub(super) redirect_url: String,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct GitHubInstallationItem {
+    pub(super) installation_id: i64,
+    pub(super) account_login: String,
+    pub(super) account_type: String,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct GitHubRepositoryItem {
+    pub(super) installation_id: i64,
+    pub(super) repo_id: i64,
+    pub(super) owner_login: String,
+    pub(super) name: String,
+    pub(super) full_name: String,
+    pub(super) default_branch: String,
+    pub(super) is_private: bool,
+    pub(super) clone_url: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

@@ -122,17 +122,16 @@ pub(super) async fn auth_session(session: Session) -> Result<StatusCode, StatusC
 }
 
 pub(super) async fn require_authenticated(session: &Session) -> Result<(), StatusCode> {
-    let authenticated = session
+    current_user_id(session).await.map(|_| ())
+}
+
+pub(super) async fn current_user_id(session: &Session) -> Result<String, StatusCode> {
+    let user_id = session
         .get::<String>(SESSION_USER_ID_KEY)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .is_some();
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    if authenticated {
-        return Ok(());
-    }
-
-    Err(StatusCode::UNAUTHORIZED)
+    user_id.ok_or(StatusCode::UNAUTHORIZED)
 }
 
 #[cfg(test)]

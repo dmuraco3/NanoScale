@@ -9,7 +9,7 @@ impl DbClient {
     /// Returns an error if the insert fails.
     pub async fn insert_project(&self, project: &NewProject) -> Result<()> {
         sqlx::query(
-            "INSERT INTO projects (id, server_id, name, repo_url, branch, install_command, build_command, start_command, output_directory, env_vars, port, domain) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            "INSERT INTO projects (id, server_id, name, repo_url, branch, install_command, build_command, start_command, output_directory, env_vars, port, domain, source_provider, source_repo_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         )
         .bind(&project.id)
         .bind(&project.server_id)
@@ -23,6 +23,8 @@ impl DbClient {
         .bind(&project.env_vars)
         .bind(project.port)
         .bind(project.domain.as_deref())
+        .bind(&project.source_provider)
+        .bind(project.source_repo_id)
         .execute(&self.pool)
         .await?;
 
@@ -47,8 +49,8 @@ impl DbClient {
     /// # Errors
     /// Returns an error if the query fails.
     pub async fn list_projects(&self) -> Result<Vec<ProjectListRecord>> {
-        let rows = sqlx::query_as::<_, (String, String, String, String, String, i64, Option<String>, String)>(
-            "SELECT id, name, repo_url, branch, start_command, port, domain, created_at FROM projects ORDER BY created_at DESC",
+        let rows = sqlx::query_as::<_, (String, String, String, String, String, i64, Option<String>, String, Option<i64>, String)>(
+            "SELECT id, name, repo_url, branch, start_command, port, domain, source_provider, source_repo_id, created_at FROM projects ORDER BY created_at DESC",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -56,7 +58,18 @@ impl DbClient {
         Ok(rows
             .into_iter()
             .map(
-                |(id, name, repo_url, branch, start_command, port, domain, created_at)| {
+                |(
+                    id,
+                    name,
+                    repo_url,
+                    branch,
+                    start_command,
+                    port,
+                    domain,
+                    source_provider,
+                    source_repo_id,
+                    created_at,
+                )| {
                     ProjectListRecord {
                         id,
                         name,
@@ -65,6 +78,8 @@ impl DbClient {
                         start_command,
                         port,
                         domain,
+                        source_provider,
+                        source_repo_id,
                         created_at,
                     }
                 },
@@ -114,10 +129,12 @@ impl DbClient {
                 i64,
                 Option<String>,
                 String,
+                Option<i64>,
+                String,
                 Option<String>,
             ),
         >(
-            "SELECT p.id, p.server_id, p.name, p.repo_url, p.branch, p.install_command, p.build_command, p.start_command, p.output_directory, p.env_vars, p.port, p.domain, p.created_at, s.name FROM projects p LEFT JOIN servers s ON s.id = p.server_id WHERE p.id = ?1",
+            "SELECT p.id, p.server_id, p.name, p.repo_url, p.branch, p.install_command, p.build_command, p.start_command, p.output_directory, p.env_vars, p.port, p.domain, p.source_provider, p.source_repo_id, p.created_at, s.name FROM projects p LEFT JOIN servers s ON s.id = p.server_id WHERE p.id = ?1",
         )
         .bind(project_id)
         .fetch_optional(&self.pool)
@@ -137,6 +154,8 @@ impl DbClient {
                 env_vars,
                 port,
                 domain,
+                source_provider,
+                source_repo_id,
                 created_at,
                 server_name,
             )| ProjectDetailsRecord {
@@ -152,6 +171,8 @@ impl DbClient {
                 env_vars,
                 port,
                 domain,
+                source_provider,
+                source_repo_id,
                 created_at,
                 server_name,
             },

@@ -11,6 +11,8 @@ pub(super) fn map_project_list_record(project: ProjectListRecord) -> ProjectList
         run_command: project.start_command,
         port: project.port,
         domain: project.domain,
+        source_provider: project.source_provider,
+        source_repo_id: project.source_repo_id,
         status: "deployed".to_string(),
         created_at: project.created_at,
     }
@@ -30,6 +32,8 @@ pub(super) fn map_project_details_record(project: ProjectDetailsRecord) -> Proje
         status: "deployed".to_string(),
         port: project.port,
         domain: project.domain,
+        source_provider: project.source_provider,
+        source_repo_id: project.source_repo_id,
         created_at: project.created_at,
     }
 }

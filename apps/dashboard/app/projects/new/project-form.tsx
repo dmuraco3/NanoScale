@@ -5,6 +5,16 @@ import { Rocket } from "lucide-react";
 
 import { type ServerListItem } from "@/lib/servers-api";
 import { createProject, type ProjectEnvVar } from "@/lib/projects-api";
+import {
+  disconnectGitHubIntegration,
+  fetchGitHubInstallations,
+  fetchGitHubRepositories,
+  fetchGitHubStatus,
+  startGitHubIntegration,
+  syncGitHubRepositories,
+  type GitHubInstallation,
+  type GitHubRepository,
+} from "@/lib/github-api";
 import { DashboardLayout } from "@/components/layout";
 import { Button, Input, Select, Card, CardHeader, CardTitle, CardContent } from "@/components/ui";
 import { useToast } from "@/components/toast";
@@ -15,6 +25,7 @@ interface ProjectFormProps {
 }
 
 type AppPresetKey = "nextjs";
+type SourceMode = "manual" | "github";
 
 interface AppPreset {
   key: AppPresetKey;
@@ -41,6 +52,7 @@ export default function ProjectForm(props: ProjectFormProps) {
   const { addToast } = useToast();
 
   const [repoUrl, setRepoUrl] = useState("");
+  const [sourceMode, setSourceMode] = useState<SourceMode>("manual");
   const [branch, setBranch] = useState("main");
   const [name, setName] = useState("");
   const [preset, setPreset] = useState<AppPresetKey>(defaultPreset.key);
@@ -52,6 +64,17 @@ export default function ProjectForm(props: ProjectFormProps) {
   const [serverId, setServerId] = useState(props.servers[0]?.id ?? "");
   const [envVars, setEnvVars] = useState<ProjectEnvVar[]>([{ key: "", value: "" }]);
   const [isSubmitting, setSubmitting] = useState(false);
+  const [githubStatus, setGitHubStatus] = useState<{
+    enabled: boolean;
+    configured: boolean;
+    connected: boolean;
+    github_login: string | null;
+  } | null>(null);
+  const [githubInstallations, setGitHubInstallations] = useState<GitHubInstallation[]>([]);
+  const [selectedInstallationId, setSelectedInstallationId] = useState("");
+  const [githubRepositories, setGitHubRepositories] = useState<GitHubRepository[]>([]);
+  const [selectedRepoId, setSelectedRepoId] = useState("");
+  const [repoSearch, setRepoSearch] = useState("");
 
   function handlePresetChange(nextPresetKey: AppPresetKey) {
     setPreset(nextPresetKey);
@@ -91,14 +114,22 @@ export default function ProjectForm(props: ProjectFormProps) {
       const result = await createProject({
         server_id: serverId,
         name,
-        repo_url: repoUrl,
-        branch,
+        repo_url: sourceMode === "manual" ? repoUrl : "",
+        branch: sourceMode === "manual" ? branch : "",
         build_command: buildCommand,
         install_command: installCommand,
         run_command: runCommand,
         output_directory: outputDirectory,
         port: port.trim().length > 0 ? Number(port) : undefined,
         env_vars: filteredEnvVars,
+        github_source:
+          sourceMode === "github" && selectedInstallationId.length > 0 && selectedRepoId.length > 0
+            ? {
+                installation_id: Number(selectedInstallationId),
+                repo_id: Number(selectedRepoId),
+                selected_branch: branch,
+              }
+            : undefined,
       });
 
       if (!result.ok) {
@@ -129,6 +160,56 @@ export default function ProjectForm(props: ProjectFormProps) {
     }
   }
 
+  async function loadGitHubStatus() {
+    const status = await fetchGitHubStatus();
+    if (status) {
+      setGitHubStatus(status);
+      if (status.connected) {
+        const installations = await fetchGitHubInstallations();
+        setGitHubInstallations(installations);
+        if (installations.length > 0 && selectedInstallationId.length === 0) {
+          setSelectedInstallationId(String(installations[0].installation_id));
+        }
+      }
+    }
+  }
+
+  async function handleIntegrateGitHub() {
+    const redirectUrl = await startGitHubIntegration();
+    window.location.assign(redirectUrl);
+  }
+
+  async function handleDisconnectGitHub() {
+    await disconnectGitHubIntegration();
+    setGitHubStatus(null);
+    setGitHubInstallations([]);
+    setSelectedInstallationId("");
+    setGitHubRepositories([]);
+    setSelectedRepoId("");
+  }
+
+  async function loadRepositories(installationId: string) {
+    if (installationId.length === 0) {
+      return;
+    }
+    const id = Number(installationId);
+    await syncGitHubRepositories(id);
+    const repositories = await fetchGitHubRepositories(id, repoSearch);
+    setGitHubRepositories(repositories);
+    if (repositories.length > 0 && selectedRepoId.length === 0) {
+      setSelectedRepoId(String(repositories[0].repo_id));
+      setBranch(repositories[0].default_branch);
+    }
+  }
+
+  function handleRepoChange(nextRepoId: string) {
+    setSelectedRepoId(nextRepoId);
+    const selected = githubRepositories.find((repository) => String(repository.repo_id) === nextRepoId);
+    if (selected) {
+      setBranch(selected.default_branch);
+    }
+  }
+
   return (
     <DashboardLayout>
       {/* Page header */}
@@ -147,6 +228,104 @@ export default function ProjectForm(props: ProjectFormProps) {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
+              <Select
+                label="Source"
+                id="source-mode"
+                value={sourceMode}
+                onChange={(event: React.ChangeEvent<HTMLSelectElement>) => setSourceMode(event.target.value as SourceMode)}
+                required
+              >
+                <option value="manual">Manual URL</option>
+                <option value="github">GitHub Repository</option>
+              </Select>
+
+              {sourceMode === "github" && (
+                <div className="space-y-4 rounded-md border border-[var(--border)] p-4">
+                  <div className="flex items-center gap-2">
+                    <Button type="button" variant="secondary" onClick={loadGitHubStatus}>
+                      Refresh GitHub Status
+                    </Button>
+                    <Button type="button" variant="secondary" onClick={handleIntegrateGitHub}>
+                      Integrate with GitHub
+                    </Button>
+                    {githubStatus?.connected && (
+                      <Button type="button" variant="ghost" onClick={handleDisconnectGitHub}>
+                        Disconnect
+                      </Button>
+                    )}
+                  </div>
+
+                  {githubStatus && (
+                    <p className="text-sm text-[var(--foreground-secondary)]">
+                      {githubStatus.connected
+                        ? `Connected as ${githubStatus.github_login ?? "GitHub user"}`
+                        : "GitHub is not connected for this account."}
+                    </p>
+                  )}
+
+                  {githubStatus?.connected && (
+                    <>
+                      <Select
+                        label="Installation"
+                        id="github-installation"
+                        value={selectedInstallationId}
+                        onChange={(event: React.ChangeEvent<HTMLSelectElement>) => {
+                          setSelectedInstallationId(event.target.value);
+                          setSelectedRepoId("");
+                          setGitHubRepositories([]);
+                        }}
+                      >
+                        {githubInstallations.map((installation) => (
+                          <option
+                            key={installation.installation_id}
+                            value={installation.installation_id}
+                          >
+                            {installation.account_login} ({installation.account_type})
+                          </option>
+                        ))}
+                      </Select>
+
+                      <div className="flex items-end gap-2">
+                        <Input
+                          label="Repository Search"
+                          id="repo-search"
+                          value={repoSearch}
+                          onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                            setRepoSearch(event.target.value)
+                          }
+                          placeholder="owner/repo"
+                        />
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => loadRepositories(selectedInstallationId)}
+                          disabled={selectedInstallationId.length === 0}
+                        >
+                          Load Repositories
+                        </Button>
+                      </div>
+
+                      <Select
+                        label="Repository"
+                        id="github-repo"
+                        value={selectedRepoId}
+                        onChange={(event: React.ChangeEvent<HTMLSelectElement>) =>
+                          handleRepoChange(event.target.value)
+                        }
+                        required
+                      >
+                        {githubRepositories.map((repository) => (
+                          <option key={repository.repo_id} value={repository.repo_id}>
+                            {repository.full_name}{repository.is_private ? " (private)" : ""}
+                          </option>
+                        ))}
+                      </Select>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {sourceMode === "manual" && (
               <Input
                 label="Repository URL"
                 id="repo-url"
@@ -156,6 +335,7 @@ export default function ProjectForm(props: ProjectFormProps) {
                 hint="The Git repository URL to clone"
                 required
               />
+              )}
 
               <Input
                 label="Branch"

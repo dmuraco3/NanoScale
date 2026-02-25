@@ -24,6 +24,7 @@ pub struct NanoScaleConfig {
     pub tls_email: Option<String>,
     pub orchestrator: OrchestratorConfig,
     pub worker: WorkerConfig,
+    pub github: GitHubConfig,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -43,6 +44,20 @@ pub struct WorkerConfig {
     pub ip: Option<String>,
     pub name: Option<String>,
     pub bind: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct GitHubConfig {
+    pub enabled: Option<bool>,
+    pub app_id: Option<String>,
+    pub app_slug: Option<String>,
+    pub client_id: Option<String>,
+    pub client_secret: Option<String>,
+    pub private_key_path: Option<String>,
+    pub webhook_secret: Option<String>,
+    pub public_base_url: Option<String>,
+    pub encryption_key: Option<String>,
 }
 
 impl NanoScaleConfig {
@@ -181,6 +196,96 @@ impl NanoScaleConfig {
             .unwrap_or(DEFAULT_WORKER_BIND)
             .trim()
             .to_string()
+    }
+
+    #[must_use]
+    pub fn github_enabled(&self) -> bool {
+        self.github.enabled.unwrap_or(false)
+            || std::env::var("NANOSCALE_GITHUB_ENABLED")
+                .ok()
+                .is_some_and(|value| {
+                    value.trim().eq_ignore_ascii_case("true") || value.trim() == "1"
+                })
+    }
+
+    #[must_use]
+    pub fn github_app_id(&self) -> Option<String> {
+        self.github
+            .app_id
+            .clone()
+            .or_else(|| std::env::var("NANOSCALE_GITHUB_APP_ID").ok())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    }
+
+    #[must_use]
+    pub fn github_app_slug(&self) -> Option<String> {
+        self.github
+            .app_slug
+            .clone()
+            .or_else(|| std::env::var("NANOSCALE_GITHUB_APP_SLUG").ok())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    }
+
+    #[must_use]
+    pub fn github_client_id(&self) -> Option<String> {
+        self.github
+            .client_id
+            .clone()
+            .or_else(|| std::env::var("NANOSCALE_GITHUB_APP_CLIENT_ID").ok())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    }
+
+    #[must_use]
+    pub fn github_client_secret(&self) -> Option<String> {
+        self.github
+            .client_secret
+            .clone()
+            .or_else(|| std::env::var("NANOSCALE_GITHUB_APP_CLIENT_SECRET").ok())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    }
+
+    #[must_use]
+    pub fn github_private_key_path(&self) -> Option<String> {
+        self.github
+            .private_key_path
+            .clone()
+            .or_else(|| std::env::var("NANOSCALE_GITHUB_APP_PRIVATE_KEY_PATH").ok())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    }
+
+    #[must_use]
+    pub fn github_webhook_secret(&self) -> Option<String> {
+        self.github
+            .webhook_secret
+            .clone()
+            .or_else(|| std::env::var("NANOSCALE_GITHUB_WEBHOOK_SECRET").ok())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    }
+
+    #[must_use]
+    pub fn public_base_url(&self) -> Option<String> {
+        self.github
+            .public_base_url
+            .clone()
+            .or_else(|| std::env::var("NANOSCALE_PUBLIC_BASE_URL").ok())
+            .map(|value| value.trim().trim_end_matches('/').to_string())
+            .filter(|value| !value.is_empty())
+    }
+
+    #[must_use]
+    pub fn github_encryption_key(&self) -> Option<String> {
+        self.github
+            .encryption_key
+            .clone()
+            .or_else(|| std::env::var("NANOSCALE_GITHUB_ENCRYPTION_KEY").ok())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
     }
 }
 

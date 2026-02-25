@@ -4,6 +4,7 @@ use anyhow::{bail, Result};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::{Pool, Sqlite};
 
+mod github;
 mod projects;
 mod servers;
 mod types;
@@ -13,8 +14,10 @@ mod users;
 mod tests;
 
 pub use types::{
-    NewProject, NewServer, NewUser, ProjectDetailsRecord, ProjectListRecord, ServerConnectionInfo,
-    ServerRecord, UserRecord,
+    GitHubInstallationRecord, GitHubRepositoryRecord, GitHubUserLinkRecord, NewGitHubInstallation,
+    NewGitHubRepository, NewGitHubUserLink, NewGitHubWebhookDelivery, NewProject,
+    NewProjectGitHubLink, NewServer, NewUser, ProjectDetailsRecord, ProjectGitHubLinkRecord,
+    ProjectListRecord, ServerConnectionInfo, ServerRecord, UserRecord,
 };
 
 const BASE_PROJECT_PORT: i64 = 3100;

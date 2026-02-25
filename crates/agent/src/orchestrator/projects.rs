@@ -11,7 +11,11 @@ use super::api_types::{
     CreateProjectRequest, CreateProjectResponse, ProjectDetailsResponse, ProjectEnvVar,
     ProjectListItem,
 };
-use super::auth::require_authenticated;
+use super::auth::{current_user_id, require_authenticated};
+use super::github::{
+    authenticated_clone_url, deactivate_project_webhook, ensure_project_webhook,
+    resolve_github_source,
+};
 use super::project_domain::assigned_project_domain;
 use super::project_mapping::{map_project_details_record, map_project_list_record};
 use super::worker_client::{
@@ -28,9 +32,17 @@ pub(super) async fn redeploy_project(
         .await
         .map_err(|status| (status, "Authentication required".to_string()))?;
 
+    redeploy_project_by_id(&state, &project_id).await?;
+    Ok(StatusCode::ACCEPTED)
+}
+
+pub(super) async fn redeploy_project_by_id(
+    state: &OrchestratorState,
+    project_id: &str,
+) -> Result<(), (StatusCode, String)> {
     let project = state
         .db
-        .get_project_by_id(&project_id)
+        .get_project_by_id(project_id)
         .await
         .map_err(|error| {
             (
@@ -87,13 +99,14 @@ pub(super) async fn redeploy_project(
         output_directory: project.output_directory.clone(),
         port: Some(project_port),
         env_vars,
+        github_source: None,
     };
 
     if let Err(error) = call_worker_delete_project(
         &connection.id,
         worker_host,
         &connection.secret_key,
-        &project_id,
+        project_id,
     )
     .await
     {
@@ -103,12 +116,14 @@ pub(super) async fn redeploy_project(
         ));
     }
 
+    let _ = deactivate_project_webhook(state, project_id).await;
+
     if let Err(error) = call_worker_create_project(
         &connection.id,
         worker_host,
         &connection.secret_key,
         &payload,
-        &project_id,
+        project_id,
         project.domain.as_deref(),
         project_port,
         state.tls_email.as_deref(),
@@ -121,7 +136,7 @@ pub(super) async fn redeploy_project(
         ));
     }
 
-    Ok(StatusCode::ACCEPTED)
+    Ok(())
 }
 
 pub(super) async fn list_projects(
@@ -240,11 +255,26 @@ pub(super) async fn create_project(
     session: Session,
     Json(payload): Json<CreateProjectRequest>,
 ) -> Result<Json<CreateProjectResponse>, (StatusCode, String)> {
-    require_authenticated(&session)
+    let user_id = current_user_id(&session)
         .await
         .map_err(|status| (status, "Authentication required".to_string()))?;
 
     validate_create_project_required_fields(&payload)?;
+
+    let resolved_github_source = if let Some(source) = payload.github_source.as_ref() {
+        Some(resolve_github_source(&state, &user_id, source).await?)
+    } else {
+        None
+    };
+
+    let repo_url = resolved_github_source.as_ref().map_or_else(
+        || payload.repo_url.clone(),
+        |source| source.clone_url.clone(),
+    );
+    let branch = resolved_github_source.as_ref().map_or_else(
+        || payload.branch.clone(),
+        |source| source.selected_branch.clone(),
+    );
 
     let connection = state
         .db
@@ -394,8 +424,8 @@ pub(super) async fn create_project(
         id: project_id.clone(),
         server_id: payload.server_id.clone(),
         name: payload.name.clone(),
-        repo_url: payload.repo_url.clone(),
-        branch: payload.branch.clone(),
+        repo_url: repo_url.clone(),
+        branch: branch.clone(),
         install_command: payload.install_command.clone(),
         build_command: payload.build_command.clone(),
         start_command: payload.run_command.clone(),
@@ -408,6 +438,12 @@ pub(super) async fn create_project(
         })?,
         port: project_port,
         domain: project_domain.clone(),
+        source_provider: if resolved_github_source.is_some() {
+            "github".to_string()
+        } else {
+            "manual".to_string()
+        },
+        source_repo_id: resolved_github_source.as_ref().map(|source| source.repo_id),
     };
 
     state.db.insert_project(&project).await.map_err(|error| {
@@ -417,11 +453,19 @@ pub(super) async fn create_project(
         )
     })?;
 
+    let mut worker_payload = payload;
+    worker_payload.repo_url = repo_url;
+    worker_payload.branch = branch;
+
+    if let Some(source) = resolved_github_source.as_ref() {
+        worker_payload.repo_url = authenticated_clone_url(&state, source).await?;
+    }
+
     if let Err(error) = call_worker_create_project(
         &connection.id,
         worker_host,
         &connection.secret_key,
-        &payload,
+        &worker_payload,
         &project_id,
         project_domain.as_deref(),
         u16::try_from(project_port).map_err(|_| {
@@ -441,6 +485,10 @@ pub(super) async fn create_project(
         ));
     }
 
+    if let Some(source) = resolved_github_source.as_ref() {
+        ensure_project_webhook(&state, &project_id, source).await?;
+    }
+
     Ok(Json(CreateProjectResponse {
         id: project_id,
         domain: project_domain,
@@ -450,8 +498,10 @@ pub(super) async fn create_project(
 fn validate_create_project_required_fields(
     payload: &CreateProjectRequest,
 ) -> Result<(), (StatusCode, String)> {
+    let repo_missing = payload.repo_url.trim().is_empty() && payload.github_source.is_none();
+
     if payload.name.trim().is_empty()
-        || payload.repo_url.trim().is_empty()
+        || repo_missing
         || payload.install_command.trim().is_empty()
         || payload.build_command.trim().is_empty()
         || payload.run_command.trim().is_empty()
@@ -482,6 +532,7 @@ mod tests {
             output_directory: String::new(),
             port: None,
             env_vars: vec![],
+            github_source: None,
         };
 
         assert_eq!(
@@ -505,6 +556,7 @@ mod tests {
             output_directory: String::new(),
             port: None,
             env_vars: vec![],
+            github_source: None,
         };
 
         validate_create_project_required_fields(&payload).expect("should be valid");

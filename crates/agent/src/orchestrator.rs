@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::{collections::HashMap, time::Duration};
 
 use anyhow::Result;
 use axum::middleware;
@@ -6,7 +7,7 @@ use axum::routing::{delete, get, post};
 use axum::Router;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tower_sessions::SessionManagerLayer;
 use tower_sessions_sqlx_store::SqliteStore;
 
@@ -22,6 +23,7 @@ use self::stats_cache::StatsCache;
 mod api_types;
 mod auth;
 mod cluster;
+mod github;
 mod internal;
 mod project_domain;
 mod project_mapping;
@@ -42,6 +44,8 @@ pub struct OrchestratorState {
     pub base_domain: Option<String>,
     pub tls_email: Option<String>,
     pub stats_cache: Arc<RwLock<StatsCache>>,
+    pub(super) github: Arc<github::GitHubService>,
+    pub(super) redeploy_debounce: Arc<Mutex<HashMap<String, u64>>>,
 }
 
 /// .
@@ -49,6 +53,7 @@ pub struct OrchestratorState {
 /// # Errors
 ///
 /// This function will return an error if setting up and running the orchestrator server process fails.
+#[allow(clippy::too_many_lines)]
 pub async fn run() -> Result<()> {
     let config = NanoScaleConfig::load()?;
     let database_path = config.database_path();
@@ -84,10 +89,15 @@ pub async fn run() -> Result<()> {
         base_domain,
         tls_email,
         stats_cache: Arc::new(RwLock::new(StatsCache::default())),
+        github: Arc::new(github::GitHubService::from_config(&config)?),
+        redeploy_debounce: Arc::new(Mutex::new(HashMap::new())),
     };
 
     let monitor = InactivityMonitor::new(state.monitored_projects.clone());
     monitor.spawn();
+
+    // keep explicit reference to satisfy clippy for imported Duration and document default debounce
+    let _default_webhook_redeploy_debounce = Duration::from_secs(15);
 
     let session_store = SqliteStore::new(state.db.pool());
     session_store.migrate().await?;
@@ -109,6 +119,32 @@ pub async fn run() -> Result<()> {
         .route("/api/auth/login", post(auth::auth_login))
         .route("/api/auth/status", post(auth::auth_status))
         .route("/api/auth/session", post(auth::auth_session))
+        .route(
+            "/api/integrations/github/status",
+            get(github::github_status),
+        )
+        .route("/api/integrations/github/start", post(github::github_start))
+        .route(
+            "/api/integrations/github/callback",
+            get(github::github_callback),
+        )
+        .route(
+            "/api/integrations/github/disconnect",
+            post(github::github_disconnect),
+        )
+        .route(
+            "/api/integrations/github/installations",
+            get(github::github_installations),
+        )
+        .route("/api/integrations/github/repos", get(github::github_repos))
+        .route(
+            "/api/integrations/github/repos/sync",
+            post(github::github_sync_repos),
+        )
+        .route(
+            "/api/integrations/github/webhook",
+            post(github::github_webhook),
+        )
         .route("/api/servers", get(servers::list_servers))
         .route("/api/servers/:id/stats", get(servers::get_server_stats))
         .route(

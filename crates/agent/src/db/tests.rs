@@ -24,6 +24,8 @@ fn new_project(id: &str, server_id: &str, port: i64, domain: Option<&str>) -> Ne
         env_vars: "[]".to_string(),
         port,
         domain: domain.map(ToString::to_string),
+        source_provider: "manual".to_string(),
+        source_repo_id: None,
     }
 }
 

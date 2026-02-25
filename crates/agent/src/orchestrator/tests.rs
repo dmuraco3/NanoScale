@@ -33,6 +33,11 @@ fn new_state(db: DbClient) -> OrchestratorState {
         base_domain: None,
         tls_email: None,
         stats_cache: Arc::new(RwLock::new(stats_cache::StatsCache::default())),
+        github: Arc::new(
+            github::GitHubService::from_config(&crate::config::NanoScaleConfig::default())
+                .expect("github service"),
+        ),
+        redeploy_debounce: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
     }
 }
 
@@ -343,6 +348,8 @@ fn project_mapping_preserves_fields_and_sets_deployed_status() {
         start_command: "bun run start".to_string(),
         port: 3100,
         domain: Some("p1.example.com".to_string()),
+        source_provider: "manual".to_string(),
+        source_repo_id: None,
         created_at: "now".to_string(),
     };
 
@@ -363,6 +370,8 @@ fn project_mapping_preserves_fields_and_sets_deployed_status() {
         env_vars: "[]".to_string(),
         port: 3100,
         domain: None,
+        source_provider: "manual".to_string(),
+        source_repo_id: None,
         created_at: "now".to_string(),
         server_name: Some("server".to_string()),
     };
