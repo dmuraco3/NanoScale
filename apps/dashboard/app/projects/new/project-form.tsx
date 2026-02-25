@@ -69,6 +69,7 @@ export default function ProjectForm(props: ProjectFormProps) {
     configured: boolean;
     connected: boolean;
     github_login: string | null;
+    app_install_url: string | null;
   } | null>(null);
   const [githubInstallations, setGitHubInstallations] = useState<GitHubInstallation[]>([]);
   const [selectedInstallationId, setSelectedInstallationId] = useState("");
@@ -275,6 +276,27 @@ export default function ProjectForm(props: ProjectFormProps) {
                         ? `Connected as ${githubStatus.github_login ?? "GitHub user"}`
                         : "GitHub is not connected for this account."}
                     </p>
+                  )}
+
+                  {githubStatus?.connected && githubInstallations.length === 0 && (
+                    <div className="space-y-2 rounded-md border border-[var(--border)] p-3">
+                      <p className="text-sm text-[var(--foreground-secondary)]">
+                        No GitHub App installations found for this user yet.
+                      </p>
+                      <p className="text-sm text-[var(--foreground-secondary)]">
+                        Install the GitHub App on your account or organization, then click Refresh GitHub Status.
+                      </p>
+                      {githubStatus.app_install_url && (
+                        <a
+                          href={githubStatus.app_install_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-sm underline text-[var(--foreground)]"
+                        >
+                          Open GitHub App installation page
+                        </a>
+                      )}
+                    </div>
                   )}
 
                   {githubStatus?.connected && (

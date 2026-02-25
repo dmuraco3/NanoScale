@@ -5,6 +5,7 @@ export interface GitHubStatus {
   configured: boolean;
   connected: boolean;
   github_login: string | null;
+  app_install_url: string | null;
 }
 
 export interface GitHubInstallation {

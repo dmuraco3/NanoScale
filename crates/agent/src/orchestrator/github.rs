@@ -129,6 +129,12 @@ impl GitHubService {
             .map(|base| format!("{base}/api/integrations/github/webhook"))
     }
 
+    fn app_install_url(&self) -> Option<String> {
+        self.app_slug
+            .as_deref()
+            .map(|slug| format!("https://github.com/apps/{slug}/installations/new"))
+    }
+
     fn encrypt(&self, value: &str) -> Result<String> {
         let cipher = self
             .cipher
@@ -270,6 +276,7 @@ pub(super) async fn github_status(
         configured: state.github.is_configured(),
         connected: link.is_some(),
         github_login: link.map(|item| item.github_login),
+        app_install_url: state.github.app_install_url(),
     }))
 }
 
@@ -345,6 +352,7 @@ struct InstallationAccount {
     account_type: String,
 }
 
+#[allow(clippy::too_many_lines)]
 pub(super) async fn github_callback(
     State(state): State<OrchestratorState>,
     _session: Session,
@@ -440,6 +448,24 @@ pub(super) async fn github_callback(
         })?;
 
     sync_installations_for_user(&state, &user_id).await?;
+
+    let installation_count = state
+        .db
+        .list_github_installations_for_user(&user_id)
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed loading installations after oauth: {error}"),
+            )
+        })?
+        .len();
+
+    if installation_count == 0 {
+        if let Some(install_url) = state.github.app_install_url() {
+            return Ok(Redirect::to(&install_url));
+        }
+    }
 
     Ok(Redirect::to("/projects/new"))
 }
@@ -906,6 +932,7 @@ pub(super) async fn deactivate_project_webhook(
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)]
 pub(super) async fn github_webhook(
     State(state): State<OrchestratorState>,
     headers: HeaderMap,

@@ -136,6 +136,7 @@ pub(super) struct GitHubStatusResponse {
     pub(super) configured: bool,
     pub(super) connected: bool,
     pub(super) github_login: Option<String>,
+    pub(super) app_install_url: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
