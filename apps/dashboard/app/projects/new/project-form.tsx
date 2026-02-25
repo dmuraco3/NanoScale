@@ -167,8 +167,16 @@ export default function ProjectForm(props: ProjectFormProps) {
       if (status.connected) {
         const installations = await fetchGitHubInstallations();
         setGitHubInstallations(installations);
-        if (installations.length > 0 && selectedInstallationId.length === 0) {
-          setSelectedInstallationId(String(installations[0].installation_id));
+        const installationId =
+          selectedInstallationId.length > 0
+            ? selectedInstallationId
+            : installations.length > 0
+              ? String(installations[0].installation_id)
+              : "";
+
+        if (installationId.length > 0) {
+          setSelectedInstallationId(installationId);
+          await loadRepositories(installationId);
         }
       }
     }
@@ -232,7 +240,13 @@ export default function ProjectForm(props: ProjectFormProps) {
                 label="Source"
                 id="source-mode"
                 value={sourceMode}
-                onChange={(event: React.ChangeEvent<HTMLSelectElement>) => setSourceMode(event.target.value as SourceMode)}
+                onChange={(event: React.ChangeEvent<HTMLSelectElement>) => {
+                  const nextMode = event.target.value as SourceMode;
+                  setSourceMode(nextMode);
+                  if (nextMode === "github") {
+                    void loadGitHubStatus();
+                  }
+                }}
                 required
               >
                 <option value="manual">Manual URL</option>

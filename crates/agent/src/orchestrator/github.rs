@@ -30,7 +30,7 @@ use super::auth::current_user_id;
 use super::projects::redeploy_project_by_id;
 use super::OrchestratorState;
 
-const SESSION_GITHUB_STATE: &str = "github_oauth_state";
+const OAUTH_STATE_TTL_SECONDS: u64 = 15 * 60;
 
 #[derive(Clone)]
 pub(crate) struct GitHubService {
@@ -160,6 +160,98 @@ impl GitHubService {
             .map_err(|_| anyhow::anyhow!("decryption failed"))?;
         String::from_utf8(plaintext).context("decrypted value is not utf8")
     }
+
+    fn oauth_state_secret(&self) -> Option<&str> {
+        self.client_secret
+            .as_deref()
+            .or(self.webhook_secret.as_deref())
+    }
+
+    fn build_oauth_state(&self, user_id: &str) -> Result<String, (StatusCode, String)> {
+        let issued_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("system clock error: {error}"),
+                )
+            })?
+            .as_secs();
+        let nonce = Uuid::new_v4().to_string();
+        let payload = format!("{user_id}:{nonce}:{issued_at}");
+        let secret = self.oauth_state_secret().ok_or((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "GitHub OAuth secret is not configured".to_string(),
+        ))?;
+
+        let mut mac = <hmac::Hmac<sha2::Sha256> as Mac>::new_from_slice(secret.as_bytes())
+            .map_err(|error| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("unable to initialize oauth signer: {error}"),
+                )
+            })?;
+        mac.update(payload.as_bytes());
+        let signature = hex::encode(mac.finalize().into_bytes());
+
+        Ok(format!("{payload}.{signature}"))
+    }
+
+    fn verify_oauth_state(&self, state: &str) -> Result<String, (StatusCode, String)> {
+        let (payload, provided_signature) = state
+            .rsplit_once('.')
+            .ok_or((StatusCode::UNAUTHORIZED, "Invalid OAuth state".to_string()))?;
+
+        let secret = self.oauth_state_secret().ok_or((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "GitHub OAuth secret is not configured".to_string(),
+        ))?;
+
+        let mut mac = <hmac::Hmac<sha2::Sha256> as Mac>::new_from_slice(secret.as_bytes())
+            .map_err(|error| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("unable to initialize oauth verifier: {error}"),
+                )
+            })?;
+        mac.update(payload.as_bytes());
+        let expected_signature = hex::encode(mac.finalize().into_bytes());
+        if !subtle_compare(expected_signature.as_bytes(), provided_signature.as_bytes()) {
+            return Err((StatusCode::UNAUTHORIZED, "Invalid OAuth state".to_string()));
+        }
+
+        let mut parts = payload.split(':');
+        let user_id = parts
+            .next()
+            .ok_or((StatusCode::UNAUTHORIZED, "Invalid OAuth state".to_string()))?;
+        let _nonce = parts
+            .next()
+            .ok_or((StatusCode::UNAUTHORIZED, "Invalid OAuth state".to_string()))?;
+        let issued_at_raw = parts
+            .next()
+            .ok_or((StatusCode::UNAUTHORIZED, "Invalid OAuth state".to_string()))?;
+        if parts.next().is_some() {
+            return Err((StatusCode::UNAUTHORIZED, "Invalid OAuth state".to_string()));
+        }
+
+        let issued_at = issued_at_raw
+            .parse::<u64>()
+            .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid OAuth state".to_string()))?;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("system clock error: {error}"),
+                )
+            })?
+            .as_secs();
+        if now.saturating_sub(issued_at) > OAUTH_STATE_TTL_SECONDS {
+            return Err((StatusCode::UNAUTHORIZED, "OAuth state expired".to_string()));
+        }
+
+        Ok(user_id.to_string())
+    }
 }
 
 pub(super) async fn github_status(
@@ -185,7 +277,7 @@ pub(super) async fn github_start(
     State(state): State<OrchestratorState>,
     session: Session,
 ) -> Result<Json<GitHubStartResponse>, (StatusCode, String)> {
-    current_user_id(&session).await.map_err(|_| {
+    let user_id = current_user_id(&session).await.map_err(|_| {
         (
             StatusCode::UNAUTHORIZED,
             "Authentication required".to_string(),
@@ -199,16 +291,7 @@ pub(super) async fn github_start(
         ));
     }
 
-    let state_token = Uuid::new_v4().to_string();
-    session
-        .insert(SESSION_GITHUB_STATE, state_token.clone())
-        .await
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Unable to set oauth state".to_string(),
-            )
-        })?;
+    let state_token = state.github.build_oauth_state(&user_id)?;
 
     let callback = state.github.callback_url().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
@@ -264,29 +347,10 @@ struct InstallationAccount {
 
 pub(super) async fn github_callback(
     State(state): State<OrchestratorState>,
-    session: Session,
+    _session: Session,
     Query(query): Query<GitHubCallbackQuery>,
 ) -> Result<Redirect, (StatusCode, String)> {
-    let user_id = current_user_id(&session).await.map_err(|_| {
-        (
-            StatusCode::UNAUTHORIZED,
-            "Authentication required".to_string(),
-        )
-    })?;
-
-    let expected_state = session
-        .get::<String>(SESSION_GITHUB_STATE)
-        .await
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Unable to read oauth state".to_string(),
-            )
-        })?;
-
-    if expected_state.as_deref() != Some(query.state.as_str()) {
-        return Err((StatusCode::UNAUTHORIZED, "Invalid OAuth state".to_string()));
-    }
+    let user_id = state.github.verify_oauth_state(&query.state)?;
 
     let callback_url = state.github.callback_url().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
@@ -376,7 +440,6 @@ pub(super) async fn github_callback(
         })?;
 
     sync_installations_for_user(&state, &user_id).await?;
-    session.remove::<String>(SESSION_GITHUB_STATE).await.ok();
 
     Ok(Redirect::to("/projects/new"))
 }
@@ -539,6 +602,9 @@ pub(super) async fn github_installations(
     session: Session,
 ) -> Result<Json<Vec<GitHubInstallationItem>>, StatusCode> {
     let user_id = current_user_id(&session).await?;
+    if let Err((status, _message)) = sync_installations_for_user(&state, &user_id).await {
+        return Err(status);
+    }
     let records = state
         .db
         .list_github_installations_for_user(&user_id)

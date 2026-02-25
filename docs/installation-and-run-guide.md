@@ -208,6 +208,21 @@ https://<your-public-domain>/api/integrations/github/webhook
 
 - **Webhook secret**: generate a strong random secret and save it for NanoScale config.
 
+Generate webhook secret example:
+
+```bash
+openssl rand -hex 32
+```
+
+If `openssl` is unavailable:
+
+```bash
+python3 - <<'PY'
+import secrets
+print(secrets.token_hex(32))
+PY
+```
+
 Repository permissions (minimum):
 
 - **Metadata**: Read-only
@@ -281,6 +296,12 @@ NANOSCALE_GITHUB_ENCRYPTION_KEY=<base64-encoded-32-byte-key>
 ```
 
 Generate encryption key example:
+
+```bash
+openssl rand -base64 32
+```
+
+If you prefer Python:
 
 ```bash
 python3 - <<'PY'
