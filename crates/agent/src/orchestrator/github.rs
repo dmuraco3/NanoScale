@@ -31,6 +31,7 @@ use super::projects::redeploy_project_by_id;
 use super::OrchestratorState;
 
 const OAUTH_STATE_TTL_SECONDS: u64 = 15 * 60;
+const GITHUB_PAGE_SIZE: usize = 100;
 
 #[derive(Clone)]
 pub(crate) struct GitHubService {
@@ -512,48 +513,31 @@ pub(super) async fn sync_installations_for_user(
             )
         })?;
 
-    let response = reqwest::Client::new()
-        .get("https://api.github.com/user/installations")
-        .header("Authorization", format!("Bearer {token}"))
-        .header("User-Agent", "nanoscale-agent")
-        .header("Accept", "application/vnd.github+json")
-        .send()
+    let installations = fetch_user_installations(&token).await?;
+
+    let records = installations
+        .into_iter()
+        .map(|installation| NewGitHubInstallation {
+            id: Uuid::new_v4().to_string(),
+            local_user_id: user_id.to_string(),
+            installation_id: installation.id,
+            account_login: installation.account.login,
+            account_type: installation.account.account_type,
+            target_type: installation.target_type,
+            target_id: installation.target_id,
+        })
+        .collect::<Vec<_>>();
+
+    state
+        .db
+        .replace_github_installations_for_user(user_id, &records)
         .await
         .map_err(|error| {
             (
-                StatusCode::BAD_GATEWAY,
-                format!("GitHub installation fetch failed: {error}"),
-            )
-        })?
-        .json::<InstallationsResponse>()
-        .await
-        .map_err(|error| {
-            (
-                StatusCode::BAD_GATEWAY,
-                format!("Invalid installations response: {error}"),
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed replacing installations: {error}"),
             )
         })?;
-
-    for installation in response.installations {
-        state
-            .db
-            .upsert_github_installation(&NewGitHubInstallation {
-                id: Uuid::new_v4().to_string(),
-                local_user_id: user_id.to_string(),
-                installation_id: installation.id,
-                account_login: installation.account.login,
-                account_type: installation.account.account_type,
-                target_type: installation.target_type,
-                target_id: installation.target_id,
-            })
-            .await
-            .map_err(|error| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Failed saving installation: {error}"),
-                )
-            })?;
-    }
 
     Ok(())
 }
@@ -1116,30 +1100,9 @@ async fn sync_repositories_for_installation(
     }
 
     let installation_token = installation_access_token(&state.github, installation_id).await?;
-    let repos = reqwest::Client::new()
-        .get("https://api.github.com/installation/repositories")
-        .header("Authorization", format!("Bearer {installation_token}"))
-        .header("User-Agent", "nanoscale-agent")
-        .header("Accept", "application/vnd.github+json")
-        .send()
-        .await
-        .map_err(|error| {
-            (
-                StatusCode::BAD_GATEWAY,
-                format!("failed loading installation repositories: {error}"),
-            )
-        })?
-        .json::<InstallationReposResponse>()
-        .await
-        .map_err(|error| {
-            (
-                StatusCode::BAD_GATEWAY,
-                format!("invalid repository response: {error}"),
-            )
-        })?;
+    let repositories = fetch_installation_repositories(&installation_token).await?;
 
-    let records = repos
-        .repositories
+    let records = repositories
         .into_iter()
         .map(|repository| NewGitHubRepository {
             id: Uuid::new_v4().to_string(),
@@ -1170,6 +1133,90 @@ async fn sync_repositories_for_installation(
         })?;
 
     Ok(())
+}
+
+async fn fetch_user_installations(token: &str) -> Result<Vec<InstallationItem>, (StatusCode, String)> {
+    let client = reqwest::Client::new();
+    let mut page = 1_usize;
+    let mut installations = Vec::new();
+
+    loop {
+        let response = client
+            .get("https://api.github.com/user/installations")
+            .query(&[("per_page", GITHUB_PAGE_SIZE), ("page", page)])
+            .header("Authorization", format!("Bearer {token}"))
+            .header("User-Agent", "nanoscale-agent")
+            .header("Accept", "application/vnd.github+json")
+            .send()
+            .await
+            .map_err(|error| {
+                (
+                    StatusCode::BAD_GATEWAY,
+                    format!("GitHub installation fetch failed: {error}"),
+                )
+            })?
+            .json::<InstallationsResponse>()
+            .await
+            .map_err(|error| {
+                (
+                    StatusCode::BAD_GATEWAY,
+                    format!("Invalid installations response: {error}"),
+                )
+            })?;
+
+        let batch_len = response.installations.len();
+        installations.extend(response.installations);
+
+        if batch_len < GITHUB_PAGE_SIZE {
+            break;
+        }
+        page = page.saturating_add(1);
+    }
+
+    Ok(installations)
+}
+
+async fn fetch_installation_repositories(
+    installation_token: &str,
+) -> Result<Vec<GitHubRepoApiItem>, (StatusCode, String)> {
+    let client = reqwest::Client::new();
+    let mut page = 1_usize;
+    let mut repositories = Vec::new();
+
+    loop {
+        let response = client
+            .get("https://api.github.com/installation/repositories")
+            .query(&[("per_page", GITHUB_PAGE_SIZE), ("page", page)])
+            .header("Authorization", format!("Bearer {installation_token}"))
+            .header("User-Agent", "nanoscale-agent")
+            .header("Accept", "application/vnd.github+json")
+            .send()
+            .await
+            .map_err(|error| {
+                (
+                    StatusCode::BAD_GATEWAY,
+                    format!("failed loading installation repositories: {error}"),
+                )
+            })?
+            .json::<InstallationReposResponse>()
+            .await
+            .map_err(|error| {
+                (
+                    StatusCode::BAD_GATEWAY,
+                    format!("invalid repository response: {error}"),
+                )
+            })?;
+
+        let batch_len = response.repositories.len();
+        repositories.extend(response.repositories);
+
+        if batch_len < GITHUB_PAGE_SIZE {
+            break;
+        }
+        page = page.saturating_add(1);
+    }
+
+    Ok(repositories)
 }
 
 async fn installation_access_token(

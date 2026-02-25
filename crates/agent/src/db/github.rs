@@ -89,6 +89,44 @@ impl DbClient {
         Ok(())
     }
 
+    pub async fn replace_github_installations_for_user(
+        &self,
+        local_user_id: &str,
+        installations: &[NewGitHubInstallation],
+    ) -> Result<()> {
+        let mut transaction = self.pool.begin().await?;
+
+        sqlx::query(
+            "DELETE FROM github_repositories WHERE installation_id IN (SELECT installation_id FROM github_installations WHERE local_user_id = ?1)",
+        )
+        .bind(local_user_id)
+        .execute(&mut *transaction)
+        .await?;
+
+        sqlx::query("DELETE FROM github_installations WHERE local_user_id = ?1")
+            .bind(local_user_id)
+            .execute(&mut *transaction)
+            .await?;
+
+        for installation in installations {
+            sqlx::query(
+                "INSERT INTO github_installations (id, local_user_id, installation_id, account_login, account_type, target_type, target_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            )
+            .bind(&installation.id)
+            .bind(&installation.local_user_id)
+            .bind(installation.installation_id)
+            .bind(&installation.account_login)
+            .bind(&installation.account_type)
+            .bind(&installation.target_type)
+            .bind(installation.target_id)
+            .execute(&mut *transaction)
+            .await?;
+        }
+
+        transaction.commit().await?;
+        Ok(())
+    }
+
     pub async fn list_github_installations_for_user(
         &self,
         local_user_id: &str,
