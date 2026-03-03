@@ -8,7 +8,7 @@ readonly SUDOERS_TARGET="/etc/sudoers.d/nanoscale"
 readonly SERVICE_FILE_PATH="/etc/systemd/system/nanoscale.service"
 readonly DASHBOARD_SERVICE_FILE_PATH="/etc/systemd/system/nanoscale-dashboard.service"
 readonly SYSTEM_UPDATER_PATH="/usr/local/bin/nanoscale-system-updater"
-readonly DEFAULT_REPO_SLUG="dmuraco/NanoScale"
+readonly DEFAULT_REPO_SLUG="dmuraco3/NanoScale"
 
 ROLE=""
 JOIN_TOKEN=""

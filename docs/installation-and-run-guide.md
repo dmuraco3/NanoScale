@@ -272,6 +272,10 @@ System-update signaling:
 requires_system_update: true
 ```
 
+Updater GitHub access settings:
+
+- `NANOSCALE_UPDATE_REPO` (optional): override repo slug, default `dmuraco3/NanoScale`
+
 When a user clicks **Update** in Settings:
 
 1. Dashboard calls `POST /api/admin/update` and receives `202 Accepted`.

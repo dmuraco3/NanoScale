@@ -3,7 +3,7 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use axum::extract::State;
 use axum::http::StatusCode;
 use flate2::read::GzDecoder;
@@ -14,7 +14,7 @@ use tower_sessions::Session;
 use super::auth::require_authenticated;
 use super::OrchestratorState;
 
-const DEFAULT_UPDATE_REPO: &str = "dmuraco/NanoScale";
+const DEFAULT_UPDATE_REPO: &str = "dmuraco3/NanoScale";
 const SYSTEM_UPDATER_WRAPPER: &str = "/usr/local/bin/nanoscale-system-updater";
 const RELEASE_ARCHIVE_PATH: &str = "/tmp/nanoscale-release.tar.gz";
 const STAGING_PATH: &str = "/opt/nanoscale-staging";
@@ -22,17 +22,6 @@ const LIVE_PATH: &str = "/opt/nanoscale";
 const BACKUP_PATH: &str = "/opt/nanoscale-backup";
 const RELEASE_ARCHIVE_ASSET_NAME: &str = "nanoscale-release.tar.gz";
 const RELEASE_MANIFEST_ASSET_NAME: &str = "manifest.json";
-
-#[derive(Debug, Deserialize)]
-struct GitHubRelease {
-    assets: Vec<GitHubReleaseAsset>,
-}
-
-#[derive(Debug, Deserialize)]
-struct GitHubReleaseAsset {
-    name: String,
-    browser_download_url: String,
-}
 
 #[derive(Debug, Deserialize)]
 struct ReleaseManifest {
@@ -65,21 +54,9 @@ async fn run_update_task() -> Result<()> {
         .build()
         .context("failed to initialize HTTP client")?;
 
-    let release = fetch_latest_release(&client).await?;
-
-    let manifest_url = release
-        .assets
-        .iter()
-        .find(|asset| asset.name == RELEASE_MANIFEST_ASSET_NAME)
-        .map(|asset| asset.browser_download_url.clone())
-        .ok_or_else(|| anyhow!("latest release is missing manifest.json asset"))?;
-
-    let archive_url = release
-        .assets
-        .iter()
-        .find(|asset| asset.name == RELEASE_ARCHIVE_ASSET_NAME)
-        .map(|asset| asset.browser_download_url.clone())
-        .ok_or_else(|| anyhow!("latest release is missing nanoscale-release.tar.gz asset"))?;
+    let release_context = release_context_from_env();
+    let manifest_url = latest_download_url(&release_context.repo_slug, RELEASE_MANIFEST_ASSET_NAME);
+    let archive_url = latest_download_url(&release_context.repo_slug, RELEASE_ARCHIVE_ASSET_NAME);
 
     let manifest = download_manifest(&client, &manifest_url).await?;
 
@@ -104,6 +81,25 @@ async fn run_update_task() -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug)]
+struct ReleaseContext {
+    repo_slug: String,
+}
+
+fn release_context_from_env() -> ReleaseContext {
+    let repo_slug = std::env::var("NANOSCALE_UPDATE_REPO")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_UPDATE_REPO.to_string());
+
+    ReleaseContext { repo_slug }
+}
+
+fn latest_download_url(repo_slug: &str, asset_name: &str) -> String {
+    format!("https://github.com/{repo_slug}/releases/latest/download/{asset_name}")
+}
+
 fn run_checked_command(program: &str, args: &[&str]) -> Result<()> {
     let status = Command::new(program)
         .args(args)
@@ -120,30 +116,6 @@ fn run_checked_command(program: &str, args: &[&str]) -> Result<()> {
     Ok(())
 }
 
-async fn fetch_latest_release(client: &reqwest::Client) -> Result<GitHubRelease> {
-    let repo_slug = std::env::var("NANOSCALE_UPDATE_REPO")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| DEFAULT_UPDATE_REPO.to_string());
-
-    let url = format!("https://api.github.com/repos/{repo_slug}/releases/latest");
-
-    let response = client
-        .get(url)
-        .header(USER_AGENT, "nanoscale-updater")
-        .send()
-        .await
-        .context("failed to fetch latest GitHub release")?
-        .error_for_status()
-        .context("latest GitHub release request returned non-success status")?;
-
-    response
-        .json::<GitHubRelease>()
-        .await
-        .context("failed to parse latest release payload")
-}
-
 async fn download_manifest(
     client: &reqwest::Client,
     manifest_url: &str,
@@ -155,7 +127,7 @@ async fn download_manifest(
         .await
         .context("failed to download update manifest")?
         .error_for_status()
-        .context("manifest download returned non-success status")?;
+        .with_context(|| format!("manifest download failed for {manifest_url}"))?;
 
     response
         .json::<ReleaseManifest>()
@@ -171,7 +143,7 @@ async fn download_archive(client: &reqwest::Client, archive_url: &str) -> Result
         .await
         .context("failed to download release archive")?
         .error_for_status()
-        .context("release archive download returned non-success status")?;
+        .with_context(|| format!("release archive download failed for {archive_url}"))?;
 
     response
         .bytes()
