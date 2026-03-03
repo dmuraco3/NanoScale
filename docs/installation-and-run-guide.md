@@ -42,7 +42,7 @@ Use this path when installing from a release archive. This is the default instal
 1) Download and extract release:
 
 ```bash
-curl -fL -o nanoscale-release.tar.gz https://github.com/<owner>/<repo>/releases/latest/download/nanoscale-release.tar.gz
+curl -fL -o nanoscale-release.tar.gz https://github.com/dmuraco3/NanoScale/releases/latest/download/nanoscale-release.tar.gz
 mkdir nanoscale-release
 tar -xzf nanoscale-release.tar.gz -C nanoscale-release
 cd nanoscale-release
@@ -254,6 +254,7 @@ The release tarball contains:
 - `/backend-bin`
 - `/server.js`
 - `/package.json`
+- `/node_modules/` (from Next standalone output)
 - `/.next/`
 - `/public/`
 - `/.next/static/`

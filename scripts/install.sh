@@ -200,6 +200,30 @@ ensure_node_runtime() {
   install_package "nodejs"
 }
 
+ensure_dashboard_runtime_dependencies() {
+  if [[ ! -f "${NANOSCALE_ROOT}/server.js" || ! -f "${NANOSCALE_ROOT}/package.json" ]]; then
+    return
+  fi
+
+  if [[ -d "${NANOSCALE_ROOT}/node_modules" ]]; then
+    return
+  fi
+
+  ensure_node_runtime
+
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "Error: npm is required to install dashboard runtime dependencies."
+    echo "Install npm and re-run install.sh."
+    exit 1
+  fi
+
+  echo "Installing dashboard runtime dependencies (node_modules missing in package)…"
+  (
+    cd "${NANOSCALE_ROOT}"
+    npm install --omit=dev --no-audit --no-fund
+  )
+}
+
 build_and_install_agent() {
   local repo_root="$1"
 
@@ -249,10 +273,14 @@ install_dashboard_from_build() {
   fi
 
   rm -rf "${NANOSCALE_ROOT}/.next" "${NANOSCALE_ROOT}/public"
+  rm -rf "${NANOSCALE_ROOT}/node_modules"
 
   install -m 0755 "${app_standalone_root}/server.js" "${NANOSCALE_ROOT}/server.js"
   install -m 0644 "${app_standalone_root}/package.json" "${NANOSCALE_ROOT}/package.json"
   cp -R "${app_standalone_root}/.next" "${NANOSCALE_ROOT}/.next"
+  if [[ -d "${standalone_root}/node_modules" ]]; then
+    cp -R "${standalone_root}/node_modules" "${NANOSCALE_ROOT}/node_modules"
+  fi
   cp -R "${repo_root}/apps/dashboard/public" "${NANOSCALE_ROOT}/public"
   mkdir -p "${NANOSCALE_ROOT}/.next"
   cp -R "${repo_root}/apps/dashboard/.next/static" "${NANOSCALE_ROOT}/.next/static"
@@ -261,9 +289,9 @@ install_dashboard_from_build() {
 install_from_local_package() {
   local package_root="$1"
 
-  if [[ ! -f "${package_root}/backend-bin" || ! -f "${package_root}/server.js" || ! -f "${package_root}/package.json" || ! -d "${package_root}/.next" || ! -d "${package_root}/public" ]]; then
+  if [[ ! -f "${package_root}/backend-bin" || ! -f "${package_root}/server.js" || ! -f "${package_root}/package.json" || ! -d "${package_root}/.next" || ! -d "${package_root}/public" || ! -d "${package_root}/node_modules" ]]; then
     echo "Error: package files not found next to install.sh."
-    echo "Expected in ${package_root}: backend-bin, server.js, package.json, .next/, public/"
+    echo "Expected in ${package_root}: backend-bin, server.js, package.json, .next/, public/, node_modules/"
     echo "If you are in the source repo, run: sudo ./scripts/install.sh --source"
     exit 1
   fi
@@ -272,9 +300,10 @@ install_from_local_package() {
   install -m 0755 "${package_root}/server.js" "${NANOSCALE_ROOT}/server.js"
   install -m 0644 "${package_root}/package.json" "${NANOSCALE_ROOT}/package.json"
 
-  rm -rf "${NANOSCALE_ROOT}/.next" "${NANOSCALE_ROOT}/public"
+  rm -rf "${NANOSCALE_ROOT}/.next" "${NANOSCALE_ROOT}/public" "${NANOSCALE_ROOT}/node_modules"
   cp -R "${package_root}/.next" "${NANOSCALE_ROOT}/.next"
   cp -R "${package_root}/public" "${NANOSCALE_ROOT}/public"
+  cp -R "${package_root}/node_modules" "${NANOSCALE_ROOT}/node_modules"
 }
 
 ensure_group_and_user() {
@@ -522,6 +551,10 @@ main() {
 
   local repo_slug
   repo_slug="$(resolve_repo_slug_for_updates "${repo_root}")"
+
+  if [[ "${ROLE}" == "orchestrator" ]]; then
+    ensure_dashboard_runtime_dependencies
+  fi
 
   chown -R nanoscale:nanoscale "${NANOSCALE_ROOT}"
 

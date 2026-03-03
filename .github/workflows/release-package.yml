@@ -57,6 +57,9 @@ jobs:
           cp "${APP_STANDALONE_ROOT}/server.js" dist/release-root/server.js
           cp "${APP_STANDALONE_ROOT}/package.json" dist/release-root/package.json
           cp -R "${APP_STANDALONE_ROOT}/.next" dist/release-root/.next
+          if [[ -d "${STANDALONE_ROOT}/node_modules" ]]; then
+            cp -R "${STANDALONE_ROOT}/node_modules" dist/release-root/node_modules
+          fi
           cp scripts/install.sh dist/release-root/install.sh
           chmod 0755 dist/release-root/install.sh
 
