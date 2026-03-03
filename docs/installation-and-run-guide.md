@@ -29,9 +29,60 @@ git clone <your-repo-url> nanoscale
 cd nanoscale
 ```
 
+If you are installing from a packaged GitHub Release instead of source, skip this section and use **Section 3.1**.
+
 ## 3) Install Baseline System Dependencies
 
 Run the installer as root on each machine.
+
+### 3.1 Package Install (Default)
+
+Use this path when installing from a release archive. This is the default installer behavior.
+
+1) Download and extract release:
+
+```bash
+curl -fL -o nanoscale-release.tar.gz https://github.com/<owner>/<repo>/releases/latest/download/nanoscale-release.tar.gz
+mkdir nanoscale-release
+tar -xzf nanoscale-release.tar.gz -C nanoscale-release
+cd nanoscale-release
+```
+
+2) Run installer (package mode is default):
+
+```bash
+sudo ./install.sh
+```
+
+3) Validate:
+
+```bash
+curl -i http://127.0.0.1:4000/api/health
+sudo systemctl status nanoscale.service
+sudo systemctl status nanoscale-dashboard.service
+```
+
+Optional env override:
+
+- `NANOSCALE_REPO_SLUG=<owner/repo>` to install from a different GitHub repo.
+
+What this install command does:
+
+- creates `nanoscale` user/group and required directories
+- writes default `/opt/nanoscale/config.json` if missing
+- installs/enables/starts:
+  - `nanoscale.service` (backend)
+  - `nanoscale-dashboard.service` (Next standalone dashboard)
+- installs `/usr/local/bin/nanoscale-system-updater` and locked-down sudoers policy
+- configures firewall rules
+
+### 3.2 Source Install (Optional)
+
+If you cloned the repository and want to build binaries locally instead of using packaged artifacts:
+
+```bash
+sudo ./scripts/install.sh --source
+```
 
 ### Orchestrator host
 
@@ -60,6 +111,8 @@ What the installer currently does:
 - Enables firewall rules for ports `22`, `80`, `443`, `4000`
 
 ## 4) Build the Agent Binary
+
+If you used Section 3.1 package installation, you can skip this section.
 
 From repo root:
 

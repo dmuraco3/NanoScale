@@ -57,10 +57,19 @@ jobs:
           cp "${APP_STANDALONE_ROOT}/server.js" dist/release-root/server.js
           cp "${APP_STANDALONE_ROOT}/package.json" dist/release-root/package.json
           cp -R "${APP_STANDALONE_ROOT}/.next" dist/release-root/.next
+          cp scripts/install.sh dist/release-root/install.sh
+          chmod 0755 dist/release-root/install.sh
 
-          cp -R apps/dashboard/public dist/release-root/public
+          mkdir -p dist/release-root/public
+          if [[ -d "apps/dashboard/public" ]]; then
+            cp -R apps/dashboard/public/. dist/release-root/public
+          fi
+
           mkdir -p dist/release-root/.next
-          cp -R apps/dashboard/.next/static dist/release-root/.next/static
+          mkdir -p dist/release-root/.next/static
+          if [[ -d "apps/dashboard/.next/static" ]]; then
+            cp -R apps/dashboard/.next/static/. dist/release-root/.next/static
+          fi
 
           tar -C dist/release-root -czf dist/nanoscale-release.tar.gz .
 

@@ -6,17 +6,21 @@ readonly CONFIG_FILE_PATH="${NANOSCALE_ROOT}/config.json"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SUDOERS_TARGET="/etc/sudoers.d/nanoscale"
 readonly SERVICE_FILE_PATH="/etc/systemd/system/nanoscale.service"
+readonly DASHBOARD_SERVICE_FILE_PATH="/etc/systemd/system/nanoscale-dashboard.service"
 readonly SYSTEM_UPDATER_PATH="/usr/local/bin/nanoscale-system-updater"
 readonly DEFAULT_REPO_SLUG="dmuraco/NanoScale"
 
 ROLE=""
 JOIN_TOKEN=""
 UPDATE_MODE="false"
+SOURCE_MODE="false"
 APT_UPDATED="false"
 
 usage() {
   echo "Usage:"
-  echo "  install.sh --role orchestrator"
+  echo "  install.sh                      # package install (default)"
+  echo "  install.sh --source             # build + install from source"
+  echo "  install.sh --role orchestrator  # explicit orchestrator role"
   echo "  install.sh --join <token>"
   echo "  install.sh --update"
   exit 1
@@ -60,10 +64,6 @@ require_repo_root() {
 }
 
 parse_args() {
-  if [[ "$#" -eq 0 ]]; then
-    usage
-  fi
-
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
       --role)
@@ -84,6 +84,10 @@ parse_args() {
         ;;
       --update)
         UPDATE_MODE="true"
+        shift
+        ;;
+      --source)
+        SOURCE_MODE="true"
         shift
         ;;
       *)
@@ -110,8 +114,18 @@ parse_args() {
     usage
   fi
 
-  if [[ "${selected_modes}" -eq 0 ]]; then
+  if [[ "${UPDATE_MODE}" == "true" && "${SOURCE_MODE}" == "true" ]]; then
+    echo "Error: --update cannot be combined with --source."
     usage
+  fi
+
+  if [[ -n "${JOIN_TOKEN}" && "${SOURCE_MODE}" == "true" ]]; then
+    echo "Error: --join cannot be combined with --source."
+    usage
+  fi
+
+  if [[ -z "${ROLE}" && -z "${JOIN_TOKEN}" && "${UPDATE_MODE}" != "true" ]]; then
+    ROLE="orchestrator"
   fi
 }
 
@@ -177,6 +191,15 @@ ensure_dependencies() {
   ensure_dependency "certbot" "certbot"
 }
 
+ensure_node_runtime() {
+  if command -v node >/dev/null 2>&1; then
+    return
+  fi
+
+  echo "Installing missing dependency: nodejs"
+  install_package "nodejs"
+}
+
 build_and_install_agent() {
   local repo_root="$1"
 
@@ -209,6 +232,49 @@ build_dashboard() {
     cd "${repo_root}"
     bun run build
   )
+}
+
+install_dashboard_from_build() {
+  local repo_root="$1"
+  local standalone_root="${repo_root}/apps/dashboard/.next/standalone"
+  local app_standalone_root="${standalone_root}"
+
+  if [[ -f "${standalone_root}/apps/dashboard/server.js" ]]; then
+    app_standalone_root="${standalone_root}/apps/dashboard"
+  fi
+
+  if [[ ! -f "${app_standalone_root}/server.js" ]]; then
+    echo "Error: standalone server.js not found. Ensure Next build is configured with output: 'standalone'."
+    exit 1
+  fi
+
+  rm -rf "${NANOSCALE_ROOT}/.next" "${NANOSCALE_ROOT}/public"
+
+  install -m 0755 "${app_standalone_root}/server.js" "${NANOSCALE_ROOT}/server.js"
+  install -m 0644 "${app_standalone_root}/package.json" "${NANOSCALE_ROOT}/package.json"
+  cp -R "${app_standalone_root}/.next" "${NANOSCALE_ROOT}/.next"
+  cp -R "${repo_root}/apps/dashboard/public" "${NANOSCALE_ROOT}/public"
+  mkdir -p "${NANOSCALE_ROOT}/.next"
+  cp -R "${repo_root}/apps/dashboard/.next/static" "${NANOSCALE_ROOT}/.next/static"
+}
+
+install_from_local_package() {
+  local package_root="$1"
+
+  if [[ ! -f "${package_root}/backend-bin" || ! -f "${package_root}/server.js" || ! -f "${package_root}/package.json" || ! -d "${package_root}/.next" || ! -d "${package_root}/public" ]]; then
+    echo "Error: package files not found next to install.sh."
+    echo "Expected in ${package_root}: backend-bin, server.js, package.json, .next/, public/"
+    echo "If you are in the source repo, run: sudo ./scripts/install.sh --source"
+    exit 1
+  fi
+
+  install -m 0755 "${package_root}/backend-bin" "${NANOSCALE_ROOT}/backend-bin"
+  install -m 0755 "${package_root}/server.js" "${NANOSCALE_ROOT}/server.js"
+  install -m 0644 "${package_root}/package.json" "${NANOSCALE_ROOT}/package.json"
+
+  rm -rf "${NANOSCALE_ROOT}/.next" "${NANOSCALE_ROOT}/public"
+  cp -R "${package_root}/.next" "${NANOSCALE_ROOT}/.next"
+  cp -R "${package_root}/public" "${NANOSCALE_ROOT}/public"
 }
 
 ensure_group_and_user() {
@@ -297,6 +363,42 @@ EOF
   systemctl enable nanoscale.service
 }
 
+create_or_update_dashboard_service() {
+  require_command "systemctl" "Install systemd so 'systemctl' is available."
+  ensure_node_runtime
+
+  local node_bin
+  node_bin="$(command -v node || true)"
+  if [[ -z "${node_bin}" ]]; then
+    node_bin="/usr/bin/node"
+  fi
+
+  cat > "${DASHBOARD_SERVICE_FILE_PATH}" <<EOF
+[Unit]
+Description=NanoScale Dashboard
+After=network.target nanoscale.service
+
+[Service]
+Type=simple
+User=nanoscale
+Group=nanoscale
+WorkingDirectory=/opt/nanoscale
+Environment=NANOSCALE_INTERNAL_API_URL=http://127.0.0.1:4000
+Environment=PORT=3000
+ExecStart=${node_bin} /opt/nanoscale/server.js
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  chown root:root "${DASHBOARD_SERVICE_FILE_PATH}"
+  chmod 0644 "${DASHBOARD_SERVICE_FILE_PATH}"
+  systemctl daemon-reload
+  systemctl enable nanoscale-dashboard.service
+}
+
 extract_repo_slug_from_remote_url() {
   local remote_url="$1"
 
@@ -356,7 +458,16 @@ configure_firewall() {
   ufw allow 22/tcp
   ufw allow 80/tcp
   ufw allow 443/tcp
+  ufw allow 3000/tcp
   ufw allow 4000/tcp
+}
+
+start_services_for_orchestrator() {
+  systemctl restart nanoscale.service
+
+  if [[ -f "${NANOSCALE_ROOT}/server.js" ]]; then
+    systemctl restart nanoscale-dashboard.service
+  fi
 }
 
 print_mode_summary() {
@@ -366,11 +477,24 @@ print_mode_summary() {
   fi
 
   if [[ "${ROLE}" == "orchestrator" ]]; then
-    echo "Configured orchestrator prerequisites."
+    if [[ "${SOURCE_MODE}" == "true" ]]; then
+      echo "Configured orchestrator from source build."
+      return
+    fi
+
+    echo "Configured orchestrator from local package files."
     return
   fi
 
-  echo "Configured worker prerequisites for join token: ${JOIN_TOKEN}"
+  if [[ -n "${JOIN_TOKEN}" ]]; then
+    echo "Configured worker prerequisites for join token: ${JOIN_TOKEN}"
+    return
+  fi
+
+  if [[ "${SOURCE_MODE}" == "true" ]]; then
+    echo "Configured orchestrator prerequisites."
+    return
+  fi
 }
 
 main() {
@@ -383,22 +507,37 @@ main() {
   create_default_backend_config
 
   local repo_root=""
-  if [[ "${UPDATE_MODE}" != "true" ]]; then
-    repo_root="$(resolve_repo_root)"
-    require_repo_root "${repo_root}"
+  if [[ "${UPDATE_MODE}" != "true" && "${ROLE}" == "orchestrator" ]]; then
+    if [[ "${SOURCE_MODE}" == "true" ]]; then
+      repo_root="$(resolve_repo_root)"
+      require_repo_root "${repo_root}"
 
-    build_and_install_agent "${repo_root}"
-    build_dashboard "${repo_root}"
+      build_and_install_agent "${repo_root}"
+      build_dashboard "${repo_root}"
+      install_dashboard_from_build "${repo_root}"
+    else
+      install_from_local_package "${SCRIPT_DIR}"
+    fi
   fi
 
   local repo_slug
   repo_slug="$(resolve_repo_slug_for_updates "${repo_root}")"
 
-  create_or_update_systemd_service
+  chown -R nanoscale:nanoscale "${NANOSCALE_ROOT}"
+
+  if [[ "${ROLE}" == "orchestrator" ]]; then
+    create_or_update_systemd_service
+    create_or_update_dashboard_service
+  fi
   install_system_updater_wrapper "${repo_slug}"
 
   configure_sudoers
   configure_firewall
+
+  if [[ "${ROLE}" == "orchestrator" ]]; then
+    start_services_for_orchestrator
+  fi
+
   print_mode_summary
 
   if [[ "${UPDATE_MODE}" == "true" ]]; then
