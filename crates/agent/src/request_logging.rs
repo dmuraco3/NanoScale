@@ -79,6 +79,8 @@ fn orchestrator_method_name(method: &str, route: &str) -> &'static str {
         ("POST", "/api/auth/login") => "auth.auth_login",
         ("POST", "/api/auth/status") => "auth.auth_status",
         ("POST", "/api/auth/session") => "auth.auth_session",
+        ("POST", "/api/admin/update") => "update.admin_update",
+        ("GET", "/api/health") => "update.health_check",
         ("GET", "/api/servers") => "servers.list_servers",
         ("GET", "/api/servers/:id/stats") => "servers.get_server_stats",
         ("GET", "/api/projects") => "projects.list_projects",

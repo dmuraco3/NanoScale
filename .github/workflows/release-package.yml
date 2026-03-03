@@ -1,0 +1,84 @@
+name: Release Package
+
+on:
+  release:
+    types:
+      - published
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.0
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Install JS dependencies
+        run: bun install
+
+      - name: Build Rust backend
+        run: cargo build --release -p agent --target x86_64-unknown-linux-gnu
+
+      - name: Build Next standalone frontend
+        run: bun run build
+
+      - name: Assemble release artifacts
+        env:
+          VERSION: ${{ github.event.release.tag_name }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+        run: |
+          set -euo pipefail
+
+          rm -rf dist
+          mkdir -p dist/release-root
+
+          cp target/x86_64-unknown-linux-gnu/release/agent dist/release-root/backend-bin
+
+          STANDALONE_ROOT="apps/dashboard/.next/standalone"
+          if [[ -f "${STANDALONE_ROOT}/apps/dashboard/server.js" ]]; then
+            APP_STANDALONE_ROOT="${STANDALONE_ROOT}/apps/dashboard"
+          else
+            APP_STANDALONE_ROOT="${STANDALONE_ROOT}"
+          fi
+
+          cp "${APP_STANDALONE_ROOT}/server.js" dist/release-root/server.js
+          cp "${APP_STANDALONE_ROOT}/package.json" dist/release-root/package.json
+          cp -R "${APP_STANDALONE_ROOT}/.next" dist/release-root/.next
+
+          cp -R apps/dashboard/public dist/release-root/public
+          mkdir -p dist/release-root/.next
+          cp -R apps/dashboard/.next/static dist/release-root/.next/static
+
+          tar -C dist/release-root -czf dist/nanoscale-release.tar.gz .
+
+          REQUIRES_SYSTEM_UPDATE="false"
+          if printf '%s' "${RELEASE_BODY}" | grep -Eiq 'requires_system_update[[:space:]]*:[[:space:]]*true'; then
+            REQUIRES_SYSTEM_UPDATE="true"
+          fi
+
+          cat > dist/manifest.json <<EOF
+          {
+            "version": "${VERSION}",
+            "requires_system_update": ${REQUIRES_SYSTEM_UPDATE}
+          }
+          EOF
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/nanoscale-release.tar.gz
+            dist/manifest.json

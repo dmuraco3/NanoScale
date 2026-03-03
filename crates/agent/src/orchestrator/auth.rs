@@ -10,9 +10,7 @@ use uuid::Uuid;
 
 use crate::db::NewUser;
 
-use super::api_types::{
-    AuthStatusResponse, ChangeCredentialsRequest, LoginRequest, SetupRequest,
-};
+use super::api_types::{AuthStatusResponse, ChangeCredentialsRequest, LoginRequest, SetupRequest};
 use super::OrchestratorState;
 
 const SESSION_USER_ID_KEY: &str = "user_id";

@@ -30,6 +30,7 @@ mod project_mapping;
 mod projects;
 mod servers;
 mod stats_cache;
+mod update;
 mod worker_client;
 
 #[cfg(test)]
@@ -149,6 +150,8 @@ pub async fn run() -> Result<()> {
             "/api/integrations/github/webhook",
             post(github::github_webhook),
         )
+        .route("/api/admin/update", post(update::admin_update))
+        .route("/api/health", get(update::health_check))
         .route("/api/servers", get(servers::list_servers))
         .route("/api/servers/:id/stats", get(servers::get_server_stats))
         .route(

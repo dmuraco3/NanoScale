@@ -4,17 +4,21 @@ set -euo pipefail
 readonly NANOSCALE_ROOT="/opt/nanoscale"
 readonly CONFIG_FILE_PATH="${NANOSCALE_ROOT}/config.json"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly SUDOERS_TEMPLATE="${SCRIPT_DIR}/security/sudoers.d/nanoscale"
 readonly SUDOERS_TARGET="/etc/sudoers.d/nanoscale"
+readonly SERVICE_FILE_PATH="/etc/systemd/system/nanoscale.service"
+readonly SYSTEM_UPDATER_PATH="/usr/local/bin/nanoscale-system-updater"
+readonly DEFAULT_REPO_SLUG="dmuraco/NanoScale"
 
 ROLE=""
 JOIN_TOKEN=""
+UPDATE_MODE="false"
 APT_UPDATED="false"
 
 usage() {
   echo "Usage:"
   echo "  install.sh --role orchestrator"
   echo "  install.sh --join <token>"
+  echo "  install.sh --update"
   exit 1
 }
 
@@ -78,6 +82,10 @@ parse_args() {
         JOIN_TOKEN="$2"
         shift 2
         ;;
+      --update)
+        UPDATE_MODE="true"
+        shift
+        ;;
       *)
         echo "Error: unknown argument '$1'."
         usage
@@ -85,12 +93,24 @@ parse_args() {
     esac
   done
 
-  if [[ -n "${ROLE}" && -n "${JOIN_TOKEN}" ]]; then
-    echo "Error: use either --role orchestrator or --join <token>, not both."
+  local selected_modes=0
+
+  if [[ -n "${ROLE}" ]]; then
+    selected_modes=$((selected_modes + 1))
+  fi
+  if [[ -n "${JOIN_TOKEN}" ]]; then
+    selected_modes=$((selected_modes + 1))
+  fi
+  if [[ "${UPDATE_MODE}" == "true" ]]; then
+    selected_modes=$((selected_modes + 1))
+  fi
+
+  if [[ "${selected_modes}" -gt 1 ]]; then
+    echo "Error: use only one mode: --role orchestrator, --join <token>, or --update."
     usage
   fi
 
-  if [[ -z "${ROLE}" && -z "${JOIN_TOKEN}" ]]; then
+  if [[ "${selected_modes}" -eq 0 ]]; then
     usage
   fi
 }
@@ -169,8 +189,8 @@ build_and_install_agent() {
     cargo build --release -p agent
   )
 
-  echo "Installing agent binary to ${NANOSCALE_ROOT}/bin/agent…"
-  install -m 0755 "${repo_root}/target/release/agent" "${NANOSCALE_ROOT}/bin/agent"
+  echo "Installing agent binary to ${NANOSCALE_ROOT}/backend-bin…"
+  install -m 0755 "${repo_root}/target/release/agent" "${NANOSCALE_ROOT}/backend-bin"
 }
 
 build_dashboard() {
@@ -239,13 +259,96 @@ JSON
 }
 
 configure_sudoers() {
-  if [[ ! -f "${SUDOERS_TEMPLATE}" ]]; then
-    echo "Error: sudoers template not found: ${SUDOERS_TEMPLATE}"
-    exit 1
+  cat > "${SUDOERS_TARGET}" <<'EOF'
+nanoscale ALL=(root) NOPASSWD: /bin/systemctl restart nanoscale.service
+nanoscale ALL=(root) NOPASSWD: /usr/local/bin/nanoscale-system-updater
+EOF
+
+  chown root:root "${SUDOERS_TARGET}"
+  chmod 0440 "${SUDOERS_TARGET}"
+  visudo -c
+}
+
+create_or_update_systemd_service() {
+  require_command "systemctl" "Install systemd so 'systemctl' is available."
+
+  cat > "${SERVICE_FILE_PATH}" <<'EOF'
+[Unit]
+Description=NanoScale Service
+After=network.target
+
+[Service]
+Type=simple
+User=nanoscale
+Group=nanoscale
+WorkingDirectory=/opt/nanoscale
+Environment=NANOSCALE_CONFIG_PATH=/opt/nanoscale/config.json
+ExecStart=/opt/nanoscale/backend-bin --role orchestrator
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  chown root:root "${SERVICE_FILE_PATH}"
+  chmod 0644 "${SERVICE_FILE_PATH}"
+  systemctl daemon-reload
+  systemctl enable nanoscale.service
+}
+
+extract_repo_slug_from_remote_url() {
+  local remote_url="$1"
+
+  local slug
+  slug="$(printf '%s' "${remote_url}" | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\.git$##')"
+
+  if [[ "${slug}" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
+    printf '%s\n' "${slug}"
+    return
   fi
 
-  install -o root -g root -m 0440 "${SUDOERS_TEMPLATE}" "${SUDOERS_TARGET}"
-  visudo -c
+  printf '%s\n' "${DEFAULT_REPO_SLUG}"
+}
+
+resolve_repo_slug_for_updates() {
+  local repo_root="$1"
+
+  if [[ -n "${NANOSCALE_REPO_SLUG:-}" ]]; then
+    printf '%s\n' "${NANOSCALE_REPO_SLUG}"
+    return
+  fi
+
+  if [[ -n "${repo_root}" ]] && command -v git >/dev/null 2>&1; then
+    local remote_url
+    remote_url="$(git -C "${repo_root}" config --get remote.origin.url || true)"
+    if [[ -n "${remote_url}" ]]; then
+      extract_repo_slug_from_remote_url "${remote_url}"
+      return
+    fi
+  fi
+
+  printf '%s\n' "${DEFAULT_REPO_SLUG}"
+}
+
+install_system_updater_wrapper() {
+  local repo_slug="$1"
+
+  cat > "${SYSTEM_UPDATER_PATH}" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly REPO_SLUG="${repo_slug}"
+readonly SETUP_URL="https://raw.githubusercontent.com/\${REPO_SLUG}/main/scripts/install.sh"
+readonly SETUP_PATH="/tmp/nanoscale-setup.sh"
+
+curl -fsSL "\${SETUP_URL}" -o "\${SETUP_PATH}"
+chmod 0755 "\${SETUP_PATH}"
+"\${SETUP_PATH}" --update
+EOF
+
+  chown root:root "${SYSTEM_UPDATER_PATH}"
+  chmod 0700 "${SYSTEM_UPDATER_PATH}"
 }
 
 configure_firewall() {
@@ -257,6 +360,11 @@ configure_firewall() {
 }
 
 print_mode_summary() {
+  if [[ "${UPDATE_MODE}" == "true" ]]; then
+    echo "Configured NanoScale system update prerequisites."
+    return
+  fi
+
   if [[ "${ROLE}" == "orchestrator" ]]; then
     echo "Configured orchestrator prerequisites."
     return
@@ -269,21 +377,35 @@ main() {
   require_root
   parse_args "$@"
 
-  local repo_root
-  repo_root="$(resolve_repo_root)"
-  require_repo_root "${repo_root}"
-
   ensure_dependencies
   ensure_group_and_user
   create_directories
   create_default_backend_config
 
-  build_and_install_agent "${repo_root}"
-  build_dashboard "${repo_root}"
+  local repo_root=""
+  if [[ "${UPDATE_MODE}" != "true" ]]; then
+    repo_root="$(resolve_repo_root)"
+    require_repo_root "${repo_root}"
+
+    build_and_install_agent "${repo_root}"
+    build_dashboard "${repo_root}"
+  fi
+
+  local repo_slug
+  repo_slug="$(resolve_repo_slug_for_updates "${repo_root}")"
+
+  create_or_update_systemd_service
+  install_system_updater_wrapper "${repo_slug}"
 
   configure_sudoers
   configure_firewall
   print_mode_summary
+
+  if [[ "${UPDATE_MODE}" == "true" ]]; then
+    echo "NanoScale system update complete."
+    return
+  fi
+
   echo "NanoScale installation baseline complete."
 }
 

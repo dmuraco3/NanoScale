@@ -12,10 +12,7 @@ use super::api_types::{
     ProjectListItem,
 };
 use super::auth::{current_user_id, require_authenticated};
-use super::github::{
-    authenticated_clone_url, deactivate_project_webhook, ensure_project_webhook,
-    resolve_github_source,
-};
+use super::github::{authenticated_clone_url, ensure_project_webhook, resolve_github_source};
 use super::project_domain::assigned_project_domain;
 use super::project_mapping::{map_project_details_record, map_project_list_record};
 use super::worker_client::{
@@ -88,7 +85,7 @@ pub(super) async fn redeploy_project_by_id(
         )
     })?;
 
-    let payload = CreateProjectRequest {
+    let mut payload = CreateProjectRequest {
         server_id: project.server_id.clone(),
         name: project.name.clone(),
         repo_url: project.repo_url.clone(),
@@ -101,6 +98,16 @@ pub(super) async fn redeploy_project_by_id(
         env_vars,
         github_source: None,
     };
+
+    apply_github_repo_auth_for_redeploy(
+        state,
+        project_id,
+        &project.source_provider,
+        &project.branch,
+        &project.repo_url,
+        &mut payload,
+    )
+    .await?;
 
     if let Err(error) = call_worker_delete_project(
         &connection.id,
@@ -115,8 +122,6 @@ pub(super) async fn redeploy_project_by_id(
             format!("Worker cleanup call failed: {error}"),
         ));
     }
-
-    let _ = deactivate_project_webhook(state, project_id).await;
 
     if let Err(error) = call_worker_create_project(
         &connection.id,
@@ -135,6 +140,50 @@ pub(super) async fn redeploy_project_by_id(
             format!("Worker deployment call failed: {error}"),
         ));
     }
+
+    Ok(())
+}
+
+async fn apply_github_repo_auth_for_redeploy(
+    state: &OrchestratorState,
+    project_id: &str,
+    source_provider: &str,
+    branch: &str,
+    repo_url: &str,
+    payload: &mut CreateProjectRequest,
+) -> Result<(), (StatusCode, String)> {
+    if source_provider != "github" {
+        return Ok(());
+    }
+
+    let github_link = state
+        .db
+        .get_project_github_link_by_project_id(project_id)
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Unable to load project GitHub link: {error}"),
+            )
+        })?
+        .ok_or((
+            StatusCode::FAILED_DEPENDENCY,
+            "Project GitHub link is missing".to_string(),
+        ))?;
+
+    let source = super::github::ResolvedGitHubSource {
+        installation_id: github_link.installation_id,
+        repo_id: github_link.repo_id,
+        repo_node_id: github_link.repo_node_id,
+        owner_login: github_link.owner_login,
+        repo_name: github_link.repo_name,
+        full_name: github_link.full_name,
+        default_branch: github_link.default_branch,
+        selected_branch: branch.to_string(),
+        clone_url: repo_url.to_string(),
+    };
+
+    payload.repo_url = authenticated_clone_url(state, &source).await?;
 
     Ok(())
 }

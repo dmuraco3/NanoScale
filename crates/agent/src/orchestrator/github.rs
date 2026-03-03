@@ -869,53 +869,6 @@ pub(super) async fn authenticated_clone_url(
     ))
 }
 
-pub(super) async fn deactivate_project_webhook(
-    state: &OrchestratorState,
-    project_id: &str,
-) -> Result<(), (StatusCode, String)> {
-    let Some(link) = state
-        .db
-        .get_project_github_link_by_project_id(project_id)
-        .await
-        .map_err(|error| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed loading project github link: {error}"),
-            )
-        })?
-    else {
-        return Ok(());
-    };
-
-    if let Some(webhook_id) = link.webhook_id {
-        let installation_token =
-            installation_access_token(&state.github, link.installation_id).await?;
-        let _ = reqwest::Client::new()
-            .delete(format!(
-                "https://api.github.com/repos/{}/hooks/{webhook_id}",
-                link.full_name
-            ))
-            .header("Authorization", format!("Bearer {installation_token}"))
-            .header("User-Agent", "nanoscale-agent")
-            .header("Accept", "application/vnd.github+json")
-            .send()
-            .await;
-    }
-
-    state
-        .db
-        .deactivate_project_github_link(project_id)
-        .await
-        .map_err(|error| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed deactivating project github link: {error}"),
-            )
-        })?;
-
-    Ok(())
-}
-
 #[allow(clippy::too_many_lines)]
 pub(super) async fn github_webhook(
     State(state): State<OrchestratorState>,

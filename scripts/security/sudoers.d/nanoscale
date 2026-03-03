@@ -1,23 +1,2 @@
-# Allow restarting ONLY nanoscale services
-nanoscale ALL=(root) NOPASSWD: /usr/bin/systemctl
-
-# Allow reloading nginx (safe operation)
-nanoscale ALL=(root) NOPASSWD: /usr/sbin/service nginx reload
-
-# Allow user management with strict prefixes
-nanoscale ALL=(root) NOPASSWD: /usr/sbin/useradd, /usr/sbin/userdel
-
-# Allow ownership updates for deployed app directories
-nanoscale ALL=(root) NOPASSWD: /usr/bin/chown
-
-# Allow installing generated systemd unit files
-nanoscale ALL=(root) NOPASSWD: /usr/bin/mv
-
-# Allow deleting generated systemd/nginx files and project directories
-nanoscale ALL=(root) NOPASSWD: /usr/bin/rm
-
-# Allow swap file allocation on low-memory hosts
-nanoscale ALL=(root) NOPASSWD: /usr/bin/fallocate
-
-# Allow certbot (Risk: High, but necessary for SSL)
-nanoscale ALL=(root) NOPASSWD: /usr/bin/certbot
+nanoscale ALL=(root) NOPASSWD: /bin/systemctl restart nanoscale.service
+nanoscale ALL=(root) NOPASSWD: /usr/local/bin/nanoscale-system-updater

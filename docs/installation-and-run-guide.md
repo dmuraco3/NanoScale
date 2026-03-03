@@ -3,9 +3,10 @@
 This guide covers the current MVP flow in this repository:
 
 - Install baseline host prerequisites with `scripts/install.sh`
-- Run the Rust agent as an Orchestrator
+- Run the Rust agent as an Orchestrator via `systemd`
 - Run the Next.js dashboard
 - Add Worker nodes with a join token
+- Apply OTA updates from the Settings page
 
 ## 1) Prerequisites
 
@@ -51,7 +52,11 @@ What the installer currently does:
 - Ensures `curl`, `git`, `nginx`, `sqlite3`, `ufw`
 - Creates `nanoscale` user/group
 - Creates `/opt/nanoscale/{bin,data,sites,config,logs,tmp}`
-- Installs sudoers file from `scripts/security/sudoers.d/nanoscale`
+- Installs `/etc/systemd/system/nanoscale.service`
+- Installs root-owned wrapper `/usr/local/bin/nanoscale-system-updater` (`0700`)
+- Installs `/etc/sudoers.d/nanoscale` allowing only:
+  - `/bin/systemctl restart nanoscale.service`
+  - `/usr/local/bin/nanoscale-system-updater`
 - Enables firewall rules for ports `22`, `80`, `443`, `4000`
 
 ## 4) Build the Agent Binary
@@ -65,6 +70,10 @@ cargo build --release -p agent
 Binary path:
 
 - `target/release/agent`
+
+Installer-managed runtime binary path:
+
+- `/opt/nanoscale/backend-bin`
 
 ## 5) Run Orchestrator (Agent + API)
 
@@ -103,7 +112,8 @@ Let's Encrypt certificates for project domains. You can also set it via the envi
 2) Start orchestrator:
 
 ```bash
-./target/release/agent --role orchestrator
+sudo systemctl start nanoscale.service
+sudo systemctl status nanoscale.service
 ```
 
 Note: assigning a domain does not automatically configure DNS. For the URL to resolve publicly you must:
@@ -172,23 +182,65 @@ If successful, the worker reports it joined the cluster and starts internal API 
 
 ## 9) Notes for Current MVP State
 
-- This repo currently documents and supports running processes directly from the shell.
-- If you want process persistence/restarts across reboots, add system services (systemd units) for:
-  - orchestrator agent process
-  - dashboard process (or reverse-proxy to a managed runtime)
+- The orchestrator agent is installed and managed through `nanoscale.service`.
+- The dashboard may still be run with `bun run dev` for development.
+- For production dashboard runtime, use a process manager or service unit in your host environment.
 - Keep Rust/Bun versions pinned to avoid CI/local mismatch.
 
-## 10) GitHub Integration (Self-Hosted Setup)
+## 10) Release Packaging and OTA Updates
+
+NanoScale release packaging is built by GitHub Actions on published releases.
+
+- Workflow: `.github/workflows/release-package.yml`
+- Release assets:
+  - `nanoscale-release.tar.gz`
+  - `manifest.json`
+
+The release tarball contains:
+
+- `/backend-bin`
+- `/server.js`
+- `/package.json`
+- `/.next/`
+- `/public/`
+- `/.next/static/`
+
+`manifest.json` contains:
+
+- `version`: release tag/version
+- `requires_system_update`: boolean
+
+System-update signaling:
+
+- To force a system-level update path, include this in the GitHub Release notes/body:
+
+```text
+requires_system_update: true
+```
+
+When a user clicks **Update** in Settings:
+
+1. Dashboard calls `POST /api/admin/update` and receives `202 Accepted`.
+2. Agent background task fetches latest release manifest.
+3. If `requires_system_update=true`, agent runs:
+   - `sudo /usr/local/bin/nanoscale-system-updater`
+4. If `requires_system_update=false`, agent downloads and installs code release:
+   - extract to `/opt/nanoscale-staging`
+   - atomic swap with `/opt/nanoscale`
+   - `sudo /bin/systemctl restart nanoscale.service`
+5. Dashboard polls `GET /api/health` every 2s and reloads once healthy.
+
+## 11) GitHub Integration (Self-Hosted Setup)
 
 Use this section if you want dashboard users to connect GitHub accounts, select repositories (including private repos), and auto-redeploy on push.
 
-### 10.1 Prerequisites
+### 11.1 Prerequisites
 
 - A public HTTPS URL that reaches your orchestrator API (for OAuth callback + webhook delivery).
 - Access to create a GitHub App in your GitHub organization or personal account.
 - A place to store the GitHub App private key PEM on the orchestrator host.
 
-### 10.2 Create the GitHub App (GitHub Dashboard)
+### 11.2 Create the GitHub App (GitHub Dashboard)
 
 In GitHub, go to **Settings → Developer settings → GitHub Apps → New GitHub App** and set:
 
@@ -259,7 +311,7 @@ sudo ls -l /opt/nanoscale/config/github-app.pem
 
 Expected permissions should be owner-read/write only (`-rw-------`) and owned by `nanoscale:nanoscale`.
 
-### 10.3 Configure NanoScale (`config.json` or env vars)
+### 11.3 Configure NanoScale (`config.json` or env vars)
 
 GitHub settings are loaded from `/opt/nanoscale/config.json` under `github`, and each value can also be provided via env vars.
 
@@ -310,7 +362,7 @@ print(base64.b64encode(os.urandom(32)).decode())
 PY
 ```
 
-### 10.4 Install the GitHub App on repos
+### 11.4 Install the GitHub App on repos
 
 In your GitHub App page:
 
@@ -326,7 +378,7 @@ Org-level note:
 - If you install to an organization, org policy may require owner approval.
 - If repositories do not appear in NanoScale, re-open **Install App** and confirm the correct org and repo scope.
 
-### 10.5 Connect from NanoScale dashboard
+### 11.5 Connect from NanoScale dashboard
 
 1. Log in to NanoScale dashboard
 2. Open **Projects → New Project**
@@ -337,7 +389,7 @@ Org-level note:
 
 On successful deploy setup, NanoScale registers a webhook so future `push` events trigger redeploy.
 
-### 10.6 Reverse proxy requirements
+### 11.6 Reverse proxy requirements
 
 Ensure your proxy preserves these headers to the orchestrator:
 
@@ -347,7 +399,7 @@ Ensure your proxy preserves these headers to the orchestrator:
 
 If orchestrator is behind NAT/private networking, place a public reverse proxy/LB/tunnel in front so GitHub can reach callback/webhook endpoints.
 
-### 10.7 First-run validation checklist (GitHub integration)
+### 11.7 First-run validation checklist (GitHub integration)
 
 1. In GitHub App settings, confirm callback/webhook URLs exactly match your public NanoScale domain.
 2. In NanoScale dashboard, click Connect GitHub and complete OAuth successfully.
@@ -363,7 +415,7 @@ If step 6 fails, check:
 - reverse proxy forwarding for `X-GitHub-Event`, `X-GitHub-Delivery`, and `X-Hub-Signature-256`
 - `NANOSCALE_GITHUB_WEBHOOK_SECRET` (or `github.webhook_secret`) exactly matches the App webhook secret
 
-## 11) Troubleshooting
+## 12) Troubleshooting
 
 ### `SQLite code 14: unable to open database file`
 

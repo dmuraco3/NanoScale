@@ -12,6 +12,7 @@ import {
   type GitHubStatus,
 } from "@/lib/github-api";
 import { changeCredentials } from "@/lib/auth-client-api";
+import { pollHealthUntilReady, triggerUpdate } from "@/lib/update-api";
 
 interface SettingsPageClientProps {
   initialGitHubStatus: GitHubStatus | null;
@@ -28,6 +29,7 @@ export function SettingsPageClient({ initialGitHubStatus }: SettingsPageClientPr
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isChangingCredentials, setChangingCredentials] = useState(false);
+  const [isUpdating, setUpdating] = useState(false);
 
   async function handleRefreshGitHubStatus() {
     setRefreshingGitHubStatus(true);
@@ -127,6 +129,23 @@ export function SettingsPageClient({ initialGitHubStatus }: SettingsPageClientPr
     }
   }
 
+  async function handleUpdateNanoScale() {
+    setUpdating(true);
+
+    try {
+      await triggerUpdate();
+      await pollHealthUntilReady(2000);
+      window.location.reload();
+    } catch (error) {
+      addToast({
+        type: "error",
+        message: "Unable to update NanoScale",
+        description: error instanceof Error ? error.message : "Try again.",
+      });
+      setUpdating(false);
+    }
+  }
+
   return (
     <DashboardLayout>
       <div className="mb-8">
@@ -221,6 +240,23 @@ export function SettingsPageClient({ initialGitHubStatus }: SettingsPageClientPr
                 Save Credentials
               </Button>
             </form>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Updates</CardTitle>
+            <CardDescription>
+              Install the latest NanoScale release.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-[var(--foreground-secondary)]">
+              Trigger an over-the-air update. The service will restart briefly.
+            </p>
+            <Button type="button" onClick={handleUpdateNanoScale} isLoading={isUpdating}>
+              {isUpdating ? "Restarting..." : "Update"}
+            </Button>
           </CardContent>
         </Card>
       </div>
