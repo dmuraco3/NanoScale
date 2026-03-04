@@ -12,13 +12,22 @@ import {
   type GitHubStatus,
 } from "@/lib/github-api";
 import { changeCredentials } from "@/lib/auth-client-api";
-import { pollHealthUntilReady, triggerUpdate } from "@/lib/update-api";
+import {
+  fetchUpdateStatus,
+  pollHealthUntilReady,
+  triggerUpdate,
+  type UpdateStatus,
+} from "@/lib/update-api";
 
 interface SettingsPageClientProps {
   initialGitHubStatus: GitHubStatus | null;
+  initialUpdateStatus: UpdateStatus | null;
 }
 
-export function SettingsPageClient({ initialGitHubStatus }: SettingsPageClientProps) {
+export function SettingsPageClient({
+  initialGitHubStatus,
+  initialUpdateStatus,
+}: SettingsPageClientProps) {
   const { addToast } = useToast();
 
   const [githubStatus, setGitHubStatus] = useState<GitHubStatus | null>(initialGitHubStatus);
@@ -30,6 +39,8 @@ export function SettingsPageClient({ initialGitHubStatus }: SettingsPageClientPr
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isChangingCredentials, setChangingCredentials] = useState(false);
   const [isUpdating, setUpdating] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(initialUpdateStatus);
+  const [isCheckingForUpdates, setCheckingForUpdates] = useState(false);
 
   async function handleRefreshGitHubStatus() {
     setRefreshingGitHubStatus(true);
@@ -130,6 +141,10 @@ export function SettingsPageClient({ initialGitHubStatus }: SettingsPageClientPr
   }
 
   async function handleUpdateNanoScale() {
+    if (!updateStatus?.update_available) {
+      return;
+    }
+
     setUpdating(true);
 
     try {
@@ -143,6 +158,30 @@ export function SettingsPageClient({ initialGitHubStatus }: SettingsPageClientPr
         description: error instanceof Error ? error.message : "Try again.",
       });
       setUpdating(false);
+    }
+  }
+
+  async function handleCheckForUpdates() {
+    setCheckingForUpdates(true);
+
+    try {
+      const status = await fetchUpdateStatus();
+      setUpdateStatus(status);
+
+      addToast({
+        type: "success",
+        message: status.update_available
+          ? `Update available: ${status.latest_version}`
+          : "You are already on the latest version",
+      });
+    } catch (error) {
+      addToast({
+        type: "error",
+        message: "Unable to check for updates",
+        description: error instanceof Error ? error.message : "Try again.",
+      });
+    } finally {
+      setCheckingForUpdates(false);
     }
   }
 
@@ -252,11 +291,36 @@ export function SettingsPageClient({ initialGitHubStatus }: SettingsPageClientPr
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-[var(--foreground-secondary)]">
-              Trigger an over-the-air update. The service will restart briefly.
+              Current version: {updateStatus?.current_version ?? "unknown"}
             </p>
-            <Button type="button" onClick={handleUpdateNanoScale} isLoading={isUpdating}>
-              {isUpdating ? "Restarting..." : "Update"}
-            </Button>
+            <p className="text-sm text-[var(--foreground-secondary)]">
+              Latest version: {updateStatus?.latest_version ?? "unknown"}
+            </p>
+            <p className="text-sm text-[var(--foreground-secondary)]">
+              {updateStatus === null
+                ? "Update status unknown. Click Check for updates."
+                : updateStatus.update_available
+                  ? "A newer release is available."
+                  : "You are on the latest release."}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={handleCheckForUpdates}
+                isLoading={isCheckingForUpdates}
+              >
+                Check for updates
+              </Button>
+              <Button
+                type="button"
+                onClick={handleUpdateNanoScale}
+                isLoading={isUpdating}
+                disabled={!updateStatus?.update_available}
+              >
+                {isUpdating ? "Restarting..." : "Update"}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>

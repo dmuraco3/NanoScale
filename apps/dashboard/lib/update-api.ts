@@ -1,5 +1,28 @@
 import { clientApiBaseUrl } from "@/lib/api-base-url";
 
+export interface UpdateStatus {
+  current_version: string;
+  latest_version: string;
+  update_available: boolean;
+}
+
+export async function fetchUpdateStatus(): Promise<UpdateStatus> {
+  const response = await fetch(`${clientApiBaseUrl()}/api/admin/update-status`, {
+    credentials: "include",
+    cache: "no-store",
+  });
+
+  if (response.status === 401) {
+    throw new Error("Your session has expired. Please log in again.");
+  }
+
+  if (!response.ok) {
+    throw new Error("Unable to check for updates");
+  }
+
+  return (await response.json()) as UpdateStatus;
+}
+
 export async function triggerUpdate(): Promise<void> {
   const response = await fetch(`${clientApiBaseUrl()}/api/admin/update`, {
     method: "POST",

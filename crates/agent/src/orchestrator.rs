@@ -151,6 +151,7 @@ pub async fn run() -> Result<()> {
             post(github::github_webhook),
         )
         .route("/api/admin/update", post(update::admin_update))
+        .route("/api/admin/update-status", get(update::update_status))
         .route("/api/health", get(update::health_check))
         .route("/api/servers", get(servers::list_servers))
         .route("/api/servers/:id/stats", get(servers::get_server_stats))
