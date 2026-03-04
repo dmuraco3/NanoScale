@@ -18,9 +18,9 @@ use super::OrchestratorState;
 const DEFAULT_UPDATE_REPO: &str = "dmuraco3/NanoScale";
 const SYSTEM_UPDATER_WRAPPER: &str = "/usr/local/bin/nanoscale-system-updater";
 const RELEASE_ARCHIVE_PATH: &str = "/tmp/nanoscale-release.tar.gz";
-const STAGING_PATH: &str = "/opt/nanoscale-staging";
 const LIVE_PATH: &str = "/opt/nanoscale";
-const BACKUP_PATH: &str = "/opt/nanoscale-backup";
+const STAGING_PATH: &str = "/opt/nanoscale/tmp/update-staging";
+const BACKUP_PATH: &str = "/opt/nanoscale/tmp/update-backup";
 const RELEASE_ARCHIVE_ASSET_NAME: &str = "nanoscale-release.tar.gz";
 const RELEASE_MANIFEST_ASSET_NAME: &str = "manifest.json";
 
@@ -283,11 +283,28 @@ fn perform_code_update_swap(archive_bytes: &[u8]) -> Result<()> {
         fs::remove_dir_all(backup).context("failed to remove previous backup directory")?;
     }
 
-    if live.exists() {
-        fs::rename(live, backup).context("failed to move live directory to backup")?;
-    }
+    fs::create_dir_all(backup).context("failed to create backup directory")?;
 
-    fs::rename(staging, live).context("failed to move staging directory into live path")?;
+    for entry_result in fs::read_dir(staging).context("failed to list staging directory")? {
+        let entry = entry_result.context("failed to read staging entry")?;
+        let file_name = entry.file_name();
+
+        let staged_path = staging.join(&file_name);
+        let live_path = live.join(&file_name);
+        let backup_path = backup.join(&file_name);
+
+        if live_path.exists() {
+            fs::rename(&live_path, &backup_path)
+                .with_context(|| format!("failed to move {} into backup", live_path.display()))?;
+        }
+
+        fs::rename(&staged_path, &live_path).with_context(|| {
+            format!(
+                "failed to move {} into live directory",
+                staged_path.display()
+            )
+        })?;
+    }
 
     Ok(())
 }
