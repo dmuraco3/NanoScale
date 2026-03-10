@@ -19,12 +19,13 @@ const DEFAULT_UPDATE_REPO: &str = "dmuraco3/NanoScale";
 const SYSTEM_UPDATER_WRAPPER: &str = "/usr/local/bin/nanoscale-system-updater";
 const RELEASE_ARCHIVE_PATH: &str = "/tmp/nanoscale-release.tar.gz";
 const LIVE_PATH: &str = "/opt/nanoscale";
+const LIVE_MANIFEST_PATH: &str = "/opt/nanoscale/manifest.json";
 const STAGING_PATH: &str = "/opt/nanoscale/tmp/update-staging";
 const BACKUP_PATH: &str = "/opt/nanoscale/tmp/update-backup";
 const RELEASE_ARCHIVE_ASSET_NAME: &str = "nanoscale-release.tar.gz";
 const RELEASE_MANIFEST_ASSET_NAME: &str = "manifest.json";
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct ReleaseManifest {
     version: String,
     requires_system_update: bool,
@@ -94,6 +95,8 @@ async fn run_update_task() -> Result<()> {
 
     let manifest = download_manifest(&client, &manifest_url).await?;
 
+    write_manifest_to_live_path(&manifest)?;
+
     println!(
         "Starting update for version {} (requires_system_update={})",
         manifest.version, manifest.requires_system_update
@@ -135,17 +138,12 @@ fn latest_download_url(repo_slug: &str, asset_name: &str) -> String {
 }
 
 fn current_installed_version() -> String {
-    if let Ok(version) = std::env::var("NANOSCALE_VERSION") {
-        let trimmed = version.trim();
-        if !trimmed.is_empty() {
-            return trimmed.to_string();
-        }
-    }
-
-    if let Ok(contents) = fs::read_to_string("/opt/nanoscale/VERSION") {
-        let trimmed = contents.trim();
-        if !trimmed.is_empty() {
-            return trimmed.to_string();
+    if let Ok(contents) = fs::read_to_string(LIVE_MANIFEST_PATH) {
+        if let Ok(manifest) = serde_json::from_str::<ReleaseManifest>(&contents) {
+            let trimmed = manifest.version.trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_string();
+            }
         }
     }
 
@@ -221,6 +219,14 @@ fn run_checked_command(program: &str, args: &[&str]) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn write_manifest_to_live_path(manifest: &ReleaseManifest) -> Result<()> {
+    let manifest_json =
+        serde_json::to_vec_pretty(manifest).context("failed to serialize downloaded manifest")?;
+
+    fs::write(LIVE_MANIFEST_PATH, manifest_json)
+        .with_context(|| format!("failed to write manifest to {LIVE_MANIFEST_PATH}"))
 }
 
 async fn download_manifest(
