@@ -7,6 +7,7 @@ use tokio::sync::RwLock;
 
 const TOKEN_TTL_SECONDS: u64 = 600;
 
+/// In-memory store for one-time cluster join tokens.
 #[derive(Debug, Default)]
 pub struct TokenStore {
     tokens: RwLock<HashMap<String, Instant>>,
@@ -19,6 +20,7 @@ impl TokenStore {
     }
 
     pub async fn generate_token(&self) -> String {
+        // Opportunistic prune keeps memory bounded without a dedicated cleanup task.
         self.prune_expired().await;
 
         let token: String = thread_rng()
@@ -34,6 +36,7 @@ impl TokenStore {
     }
 
     pub async fn consume_valid_token(&self, token: &str) -> bool {
+        // Consume-on-read enforces one-time token semantics.
         self.prune_expired().await;
 
         let mut tokens = self.tokens.write().await;

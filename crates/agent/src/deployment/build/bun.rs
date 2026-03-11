@@ -2,6 +2,7 @@ use std::path::Path;
 
 use anyhow::{bail, Result};
 
+/// Resolves the `bun` executable path from override, common locations, or `PATH`.
 pub(super) fn bun_binary() -> Result<String> {
     if let Ok(configured_binary) = std::env::var("NANOSCALE_BUN_BIN") {
         let trimmed_binary = configured_binary.trim();

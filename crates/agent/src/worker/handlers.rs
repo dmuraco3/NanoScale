@@ -23,6 +23,7 @@ use super::api_types::{
 
 use crate::system::collect_host_stats;
 
+/// Returns host-level health data for liveness and quick diagnostics.
 pub(super) async fn internal_health() -> Json<HealthResponse> {
     let mut system = System::new_all();
     system.refresh_cpu_usage();
@@ -35,6 +36,9 @@ pub(super) async fn internal_health() -> Json<HealthResponse> {
     })
 }
 
+/// Returns host and per-project usage counters.
+///
+/// Heavy sysinfo/process inspection is run in a blocking task to keep the async runtime responsive.
 pub(super) async fn internal_stats(
     Json(payload): Json<StatsRequest>,
 ) -> Result<Json<StatsResponse>, StatusCode> {
@@ -71,6 +75,7 @@ pub(super) async fn internal_stats(
     Ok(Json(StatsResponse { totals, projects }))
 }
 
+/// Placeholder endpoint reserved for future asynchronous deploy queue support.
 pub(super) async fn internal_deploy() -> (StatusCode, Json<DeployPlaceholderResponse>) {
     (
         StatusCode::ACCEPTED,
@@ -82,6 +87,7 @@ pub(super) async fn internal_deploy() -> (StatusCode, Json<DeployPlaceholderResp
     )
 }
 
+/// Checks if a port can be bound locally by attempting a temporary listener bind.
 pub(super) async fn internal_port_check(
     Json(payload): Json<PortAvailabilityRequest>,
 ) -> (StatusCode, Json<PortAvailabilityResponse>) {
@@ -91,10 +97,12 @@ pub(super) async fn internal_port_check(
     (StatusCode::OK, Json(PortAvailabilityResponse { available }))
 }
 
+/// Deletes system-level resources for a project (systemd/nginx/runtime files).
 pub(super) async fn internal_delete_project(
     State(_state): State<WorkerState>,
     AxumPath(project_id): AxumPath<String>,
 ) -> (StatusCode, Json<CreateProjectPlaceholderResponse>) {
+    // Teardown can touch filesystem and services, so it runs off the async executor thread.
     let project_id_for_cleanup = project_id.clone();
     let delete_result = tokio::task::spawn_blocking(move || {
         let privilege_wrapper = PrivilegeWrapper::new();
@@ -127,6 +135,9 @@ pub(super) async fn internal_delete_project(
     }
 }
 
+/// Executes the end-to-end project provisioning pipeline on the worker.
+///
+/// Pipeline: validate + clone + checkout + build + generate systemd + generate nginx + optional TLS.
 #[allow(clippy::too_many_lines)]
 pub(super) async fn internal_projects(
     State(_state): State<WorkerState>,
@@ -210,6 +221,7 @@ pub(super) async fn internal_projects(
         )
         .context("nginx generation failed")?;
 
+        // TLS failure should not block project availability; return a status message instead.
         let tls_summary = match (domain.as_deref(), tls_email.as_deref()) {
             (Some(domain), Some(email)) => {
                 match TlsProvisioner::ensure_certificate(domain, email, &privilege_wrapper) {

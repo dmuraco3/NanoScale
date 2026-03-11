@@ -44,6 +44,7 @@ pub async fn run(join_token: &str) -> Result<()> {
     };
 
     let join_url = format!("{orchestrator_url}/api/cluster/join");
+    // Join the orchestrator first so this worker has an assigned server id in cluster state.
     let join_response = reqwest::Client::new()
         .post(join_url)
         .json(&join_request)
@@ -61,6 +62,7 @@ pub async fn run(join_token: &str) -> Result<()> {
 
     let worker_state = WorkerState {};
 
+    // Internal worker API: only orchestrator-facing endpoints, not exposed to end users.
     let app = Router::new()
         .route("/internal/health", post(handlers::internal_health))
         .route("/internal/stats", post(handlers::internal_stats))
@@ -84,6 +86,7 @@ pub async fn run(join_token: &str) -> Result<()> {
 }
 
 fn generate_secret_key() -> String {
+    // Used for orchestrator-to-worker request signing.
     thread_rng()
         .sample_iter(&Alphanumeric)
         .take(64)

@@ -3,6 +3,7 @@ use clap::{Parser, ValueEnum};
 
 use agent::{orchestrator, worker};
 
+/// CLI arguments used to select which agent role to start.
 #[derive(Debug, Parser)]
 #[command(name = "agent")]
 #[command(about = "NanoScale host agent")]
@@ -14,11 +15,17 @@ struct Cli {
     join: Option<String>,
 }
 
+/// Runtime role for this process.
 #[derive(Clone, Debug, ValueEnum)]
 enum Role {
+    /// Starts the control-plane API server and database-backed orchestrator state.
     Orchestrator,
 }
 
+/// Entrypoint that dispatches to orchestrator or worker mode.
+///
+/// # Errors
+/// Returns an error if the selected runtime role fails to start or exits with an error.
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();

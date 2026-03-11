@@ -10,6 +10,7 @@ use crate::deployment::tls::ACME_WEBROOT_PATH;
 const TMP_BASE_PATH: &str = "/opt/nanoscale/tmp";
 const NGINX_SITES_ENABLED: &str = "/etc/nginx/sites-enabled";
 
+/// Generates nginx site configurations for deployed projects.
 #[derive(Debug)]
 pub struct NginxGenerator;
 
@@ -70,6 +71,7 @@ impl NginxGenerator {
         let fallback = format!("ns-{short_id}.local");
 
         let domain = domain.map(str::trim).filter(|value| !value.is_empty());
+        // Keep a deterministic fallback host for local diagnostics even when a public domain exists.
         match domain {
             Some(domain) => format!("{domain} {fallback}"),
             None => fallback,

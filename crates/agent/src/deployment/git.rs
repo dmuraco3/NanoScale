@@ -64,6 +64,7 @@ impl Git {
     /// # Errors
     /// Returns an error if the validator regex cannot be compiled or the URL does not pass.
     pub fn validate_repo_url(repo_url: &str) -> Result<()> {
+        // Keep cloning constrained to HTTPS URLs with an explicit character allowlist.
         let regex = Regex::new(r"^https://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+$")
             .map_err(|error| anyhow!("invalid repo url validator: {error}"))?;
 

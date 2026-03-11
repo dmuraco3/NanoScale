@@ -10,6 +10,7 @@ use crate::db::NewServer;
 use super::auth::require_authenticated;
 use super::OrchestratorState;
 
+/// Issues a short-lived cluster join token for authenticated users.
 pub(super) async fn generate_cluster_token(
     State(state): State<OrchestratorState>,
     session: Session,
@@ -24,10 +25,12 @@ pub(super) async fn generate_cluster_token(
     }))
 }
 
+/// Consumes a cluster join token and registers the joining worker server.
 pub(super) async fn join_cluster(
     State(state): State<OrchestratorState>,
     Json(payload): Json<JoinClusterRequest>,
 ) -> Result<Json<JoinClusterResponse>, StatusCode> {
+    // Tokens are one-time use; invalid or already-consumed tokens are rejected.
     if !state.token_store.consume_valid_token(&payload.token).await {
         return Err(StatusCode::UNAUTHORIZED);
     }
@@ -50,6 +53,7 @@ pub(super) async fn join_cluster(
     Ok(Json(JoinClusterResponse { server_id }))
 }
 
+/// Placeholder endpoint used by internal signature middleware tests.
 pub(super) async fn verify_signature_guarded() -> StatusCode {
     StatusCode::OK
 }

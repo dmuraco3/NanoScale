@@ -20,6 +20,7 @@ use super::worker_client::{
 };
 use super::OrchestratorState;
 
+/// Authenticated endpoint wrapper that triggers project redeploy on its assigned worker.
 pub(super) async fn redeploy_project(
     State(state): State<OrchestratorState>,
     session: Session,
@@ -37,6 +38,7 @@ pub(super) async fn redeploy_project_by_id(
     state: &OrchestratorState,
     project_id: &str,
 ) -> Result<(), (StatusCode, String)> {
+    // Redeploy is modeled as delete + create to keep worker state, nginx, and systemd in sync.
     let project = state
         .db
         .get_project_by_id(project_id)
@@ -152,6 +154,7 @@ async fn apply_github_repo_auth_for_redeploy(
     repo_url: &str,
     payload: &mut CreateProjectRequest,
 ) -> Result<(), (StatusCode, String)> {
+    // Non-GitHub projects use the stored repo URL directly.
     if source_provider != "github" {
         return Ok(());
     }
@@ -264,6 +267,7 @@ pub(super) async fn delete_project(
         &connection.ip_address
     };
 
+    // Delete on worker first, then remove DB record so failures do not orphan host resources.
     if let Err(error) = call_worker_delete_project(
         &connection.id,
         worker_host,
@@ -343,6 +347,7 @@ pub(super) async fn create_project(
         &connection.ip_address
     };
     let project_port = if let Some(requested_port) = payload.port {
+        // Caller-specified ports are validated against both DB records and worker bindability.
         let requested_port = i64::from(requested_port);
         if requested_port < DbClient::min_project_port() {
             return Err((
@@ -402,6 +407,7 @@ pub(super) async fn create_project(
 
         requested_port
     } else {
+        // Auto-allocation starts from DB suggestion but verifies with the worker to avoid drift.
         let mut candidate = state
             .db
             .next_available_project_port()
@@ -489,6 +495,7 @@ pub(super) async fn create_project(
         source_repo_id: resolved_github_source.as_ref().map(|source| source.repo_id),
     };
 
+    // Persist first so orchestrator is source of truth for project identity and ownership.
     state.db.insert_project(&project).await.map_err(|error| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -521,6 +528,7 @@ pub(super) async fn create_project(
     )
     .await
     {
+        // Roll back DB state when provisioning fails to keep API responses and DB consistent.
         let _ = state.db.delete_project_by_id(&project_id).await;
         return Err((
             StatusCode::BAD_GATEWAY,
@@ -541,6 +549,7 @@ pub(super) async fn create_project(
 fn validate_create_project_required_fields(
     payload: &CreateProjectRequest,
 ) -> Result<(), (StatusCode, String)> {
+    // GitHub-backed projects can omit direct repo_url because it is resolved from installation data.
     let repo_missing = payload.repo_url.trim().is_empty() && payload.github_source.is_none();
 
     if payload.name.trim().is_empty()

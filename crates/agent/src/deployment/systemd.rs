@@ -9,6 +9,7 @@ use crate::system::PrivilegeWrapper;
 const TMP_BASE_PATH: &str = "/opt/nanoscale/tmp";
 const SYSTEMD_TARGET_PATH: &str = "/etc/systemd/system";
 
+/// Generates and installs project-specific `systemd` units.
 #[derive(Debug)]
 pub struct SystemdGenerator;
 
@@ -75,6 +76,7 @@ impl SystemdGenerator {
         run_command: &str,
         port: u16,
     ) -> Result<String> {
+        // `ExecStart` is intentionally validated/sanitized before template interpolation.
         let exec_start = Self::resolve_exec_start(source_dir, runtime, run_command, port)?;
 
         Ok(format!(
@@ -90,6 +92,7 @@ impl SystemdGenerator {
     ) -> Result<String> {
         let trimmed_run_command = run_command.trim();
         if trimmed_run_command.is_empty() {
+            // Default command depends on runtime selected during build artifact detection.
             return Ok(match runtime {
                 AppRuntime::StandaloneNode => format!("/usr/bin/node {source_dir}/server.js"),
                 AppRuntime::BunStart { bun_binary } => {
@@ -118,6 +121,7 @@ impl SystemdGenerator {
             bail!("run command cannot be empty");
         }
 
+        // Keep command parsing shell-free and reject obvious control/token expansion characters.
         let forbidden_characters = [';', '|', '&', '>', '<', '`', '$', '\n', '\r'];
         if trimmed_command
             .chars()
@@ -137,6 +141,7 @@ impl SystemdGenerator {
     }
 
     fn bun_binary() -> Result<String> {
+        // Duplicated here so systemd generation can resolve bun independently of build module.
         if let Ok(configured_binary) = std::env::var("NANOSCALE_BUN_BIN") {
             let trimmed_binary = configured_binary.trim();
             if !trimmed_binary.is_empty() {

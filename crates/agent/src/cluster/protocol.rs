@@ -1,21 +1,29 @@
 use serde::{Deserialize, Serialize};
 
+/// Response returned when an orchestrator issues a one-time cluster join token.
 #[derive(Debug, Serialize)]
 pub struct GenerateTokenResponse {
     pub token: String,
     pub expires_in_seconds: u64,
 }
 
+/// Request sent by a worker when joining the cluster.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct JoinClusterRequest {
+    /// One-time token minted by the orchestrator.
     pub token: String,
+    /// Worker-reachable IP address used by orchestrator for internal callbacks.
     pub ip: String,
+    /// Shared secret persisted for request-signature verification.
     pub secret_key: String,
+    /// Human-readable server name shown in API responses/UI.
     pub name: String,
 }
 
+/// Response returned after a successful worker join handshake.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct JoinClusterResponse {
+    /// Server id assigned by the orchestrator and persisted in DB.
     pub server_id: String,
 }
 

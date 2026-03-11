@@ -20,8 +20,10 @@ pub use types::{
     ProjectListRecord, ServerConnectionInfo, ServerRecord, UserRecord,
 };
 
+/// Lowest port value that can be allocated to managed project runtimes.
 const BASE_PROJECT_PORT: i64 = 3100;
 
+/// Thin database facade over `SQLx` used by orchestrator handlers and services.
 #[derive(Debug, Clone)]
 pub struct DbClient {
     pool: Pool<Sqlite>,

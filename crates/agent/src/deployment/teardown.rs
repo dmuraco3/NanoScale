@@ -10,6 +10,7 @@ const NGINX_ENABLED_PATH: &str = "/etc/nginx/sites-enabled";
 const PROJECT_SITES_PATH: &str = "/opt/nanoscale/sites";
 const PROJECT_TMP_PATH: &str = "/opt/nanoscale/tmp";
 
+/// Removes project runtime resources from the worker host.
 #[derive(Debug)]
 pub struct Teardown;
 
@@ -32,6 +33,7 @@ impl Teardown {
         let project_sites_path = format!("{PROJECT_SITES_PATH}/{project_id}");
         let project_tmp_path = format!("{PROJECT_TMP_PATH}/{project_id}");
 
+        // Stop/disable calls are best-effort so cleanup can continue for partially configured hosts.
         let _ = privilege_wrapper.run("/usr/bin/systemctl", &["stop", &service_name]);
         let _ = privilege_wrapper.run("/usr/bin/systemctl", &["disable", "--now", &service_name]);
         let _ = privilege_wrapper.run("/usr/bin/systemctl", &["stop", &socket_name]);

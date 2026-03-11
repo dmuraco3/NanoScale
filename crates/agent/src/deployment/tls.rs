@@ -6,17 +6,18 @@ use crate::system::PrivilegeWrapper;
 
 pub const ACME_WEBROOT_PATH: &str = "/opt/nanoscale/acme";
 
+/// Provisions/renews certificates using `certbot` webroot flow.
 pub struct TlsProvisioner;
 
 impl TlsProvisioner {
-    /// .
+    /// Ensures a certificate exists for `domain` using the configured ACME webroot.
     ///
     /// # Errors
     ///
     /// This function will return an error if:
-    /// 1) domain is 0-length string
-    /// 2) tls email is 0-length string
-    /// 3) certbot fails to generated a certificate
+    /// 1) `domain` is empty.
+    /// 2) `email` is empty.
+    /// 3) `certbot` execution fails.
     pub fn ensure_certificate(
         domain: &str,
         email: &str,
@@ -56,6 +57,7 @@ impl TlsProvisioner {
     }
 
     fn ensure_acme_webroot() -> Result<()> {
+        // Nginx templates point challenge paths at this directory.
         fs::create_dir_all(ACME_WEBROOT_PATH)
             .with_context(|| format!("failed to create ACME webroot: {ACME_WEBROOT_PATH}"))?;
         Ok(())

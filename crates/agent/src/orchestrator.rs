@@ -35,19 +35,31 @@ mod worker_client;
 #[cfg(test)]
 mod tests;
 
+/// Shared state injected into orchestrator handlers.
+///
+/// This state is cloned into each request and wraps mutable shared resources in
+/// `Arc<Mutex<_>>`/`Arc<RwLock<_>>` where needed.
 #[derive(Debug, Clone)]
 pub struct OrchestratorState {
+    /// Database client used by API handlers.
     pub db: DbClient,
+    /// Ephemeral join token store for cluster enrollment.
     pub token_store: Arc<TokenStore>,
+    /// Server id that identifies this orchestrator in the servers table.
     pub local_server_id: String,
+    /// Optional root domain used for project subdomain assignment.
     pub base_domain: Option<String>,
+    /// Optional email used by workers for TLS certificate provisioning.
     pub tls_email: Option<String>,
+    /// Cached host/project stats refreshed by server stats routes.
     pub stats_cache: Arc<RwLock<StatsCache>>,
+    /// GitHub integration service for OAuth, repos, and webhook orchestration.
     pub(super) github: Arc<github::GitHubService>,
+    /// Last webhook-trigger timestamp per project id used to debounce redeploys.
     pub(super) redeploy_debounce: Arc<Mutex<HashMap<String, u64>>>,
 }
 
-/// .
+/// Starts orchestrator mode: initializes persistence and serves public/internal APIs.
 ///
 /// # Errors
 ///
@@ -99,6 +111,7 @@ pub async fn run() -> Result<()> {
 
     let session_layer = SessionManagerLayer::new(session_store).with_secure(false);
 
+    // Internal routes are signed and intended for worker/orchestrator service-to-service calls.
     let internal_router = Router::new()
         .route("/projects", post(internal::internal_projects))
         .route("/projects/:id", delete(internal::internal_delete_project))
@@ -109,6 +122,7 @@ pub async fn run() -> Result<()> {
             verify_cluster_signature,
         ));
 
+    // Public API used by the dashboard frontend and admin workflows.
     let app = Router::new()
         .route("/api/auth/setup", post(auth::auth_setup))
         .route("/api/auth/login", post(auth::auth_login))
@@ -189,6 +203,7 @@ fn normalize_base_domain_value(raw_value: &str) -> Result<String, anyhow::Error>
         anyhow::bail!("Base domain cannot be empty");
     }
 
+    // Restrict to a bare domain (no scheme, port, paths, or traversal-like segments).
     if normalized.contains('/') || normalized.contains(':') || normalized.contains("..") {
         anyhow::bail!("Base domain must be a bare domain like mydomain.com");
     }
@@ -204,6 +219,7 @@ fn normalize_base_domain_value(raw_value: &str) -> Result<String, anyhow::Error>
 }
 
 fn generate_secret_key() -> String {
+    // Secrets are persisted for orchestrator-to-worker signed internal requests.
     thread_rng()
         .sample_iter(&Alphanumeric)
         .take(64)

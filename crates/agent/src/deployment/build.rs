@@ -15,6 +15,7 @@ const SWAP_FILE_PATH: &str = "/opt/nanoscale/tmp/nanoscale.swap";
 const SOURCE_BASE_PATH: &str = "/opt/nanoscale/sites";
 const RUNTIME_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 
+/// Coordinates build/install steps for a single project deployment.
 #[derive(Debug)]
 pub struct BuildSystem;
 
@@ -33,7 +34,9 @@ pub enum AppRuntime {
 
 #[derive(Debug)]
 pub struct BuildOutput {
+    /// Installed source/artifact directory used by service generation.
     pub source_dir: PathBuf,
+    /// Runtime selected from built artifact shape.
     pub runtime: AppRuntime,
 }
 
@@ -49,6 +52,7 @@ impl BuildSystem {
         settings: &BuildSettings,
         privilege_wrapper: &PrivilegeWrapper,
     ) -> Result<BuildOutput> {
+        // Low-memory hosts often fail modern JS builds; provision swap before install/build.
         Self::ensure_swap_if_low_ram(privilege_wrapper)
             .map_err(|error| anyhow::anyhow!("swap provisioning failed: {error:#}"))?;
         Self::run_command(repo_dir, &settings.install_command, "dependency install")
@@ -67,6 +71,7 @@ impl BuildSystem {
             anyhow::anyhow!("sites directory permission setup failed: {error:#}")
         })?;
 
+        // Next.js standalone output includes server.js; otherwise fall back to bun run start.
         let runtime = if destination_dir.join("server.js").is_file()
             || destination_dir.join(".next/standalone/server.js").is_file()
         {
@@ -99,6 +104,7 @@ impl BuildSystem {
             return Ok(());
         }
 
+        // File creation is intentionally minimal here; activation is handled out-of-band.
         privilege_wrapper.run("/usr/bin/fallocate", &["-l", "2G", SWAP_FILE_PATH])?;
         Ok(())
     }
@@ -156,6 +162,8 @@ impl BuildSystem {
             bail!("command cannot be empty");
         }
 
+        // Commands are executed directly (not through a shell), but reject shell control chars
+        // to avoid ambiguous/unsafe command strings from user-provided settings.
         let forbidden_characters = [';', '|', '&', '>', '<', '`', '$', '\n', '\r'];
         if trimmed_command
             .chars()
@@ -185,6 +193,7 @@ impl BuildSystem {
             return Ok(candidate_dir);
         }
 
+        // Standalone artifacts can still require the repo root as runtime context.
         let dot_next_dir = repo_dir.join(".next");
         if trimmed_output_directory == ".next/standalone" && dot_next_dir.is_dir() {
             return Ok(repo_dir.to_path_buf());
@@ -205,6 +214,7 @@ impl BuildSystem {
             match fs::remove_dir_all(destination_dir) {
                 Ok(()) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                    // Existing deployments may be owned by service users; fall back to privileged rm.
                     let destination = destination_dir
                         .to_str()
                         .ok_or_else(|| anyhow::anyhow!("invalid destination path"))?;

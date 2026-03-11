@@ -6,21 +6,25 @@ use serde::{Deserialize, Serialize};
 
 use super::api_types::{CreateProjectRequest, WorkerCreateProjectRequest};
 
+/// Internal request payload used to test whether a worker can bind a candidate port.
 #[derive(Debug, Serialize)]
 struct WorkerPortAvailabilityRequest {
     port: u16,
 }
 
+/// Internal response payload returned by worker port availability endpoint.
 #[derive(Debug, Deserialize)]
 struct WorkerPortAvailabilityResponse {
     available: bool,
 }
 
+/// Internal request payload for worker stats collection.
 #[derive(Debug, Serialize)]
 struct WorkerStatsRequest {
     project_ids: Vec<String>,
 }
 
+/// Worker stats response projected into orchestrator-side types.
 #[derive(Debug, Deserialize)]
 pub(super) struct WorkerStatsResponse {
     pub(super) totals: WorkerStatsTotals,
@@ -60,6 +64,7 @@ pub(super) async fn call_worker_create_project(
     project_port: u16,
     tls_email: Option<&str>,
 ) -> Result<()> {
+    // Worker payload is intentionally narrower than public create payload.
     let worker_payload = WorkerCreateProjectRequest {
         project_id: project_id.to_string(),
         name: payload.name.clone(),
@@ -75,6 +80,7 @@ pub(super) async fn call_worker_create_project(
         env_vars: payload.env_vars.clone(),
     };
 
+    // Every internal call is signed with HMAC(body || timestamp) and server identity headers.
     let body = serde_json::to_vec(&worker_payload)?;
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)?
@@ -203,6 +209,7 @@ pub(super) async fn call_worker_port_available(
 }
 
 fn sign_internal_payload(body: &[u8], timestamp: &str, secret_key: &str) -> Result<String> {
+    // Mirrors worker-side verification in cluster signature middleware.
     let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(secret_key.as_bytes())?;
     hmac::Mac::update(&mut mac, body);
     hmac::Mac::update(&mut mac, timestamp.as_bytes());

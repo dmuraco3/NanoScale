@@ -15,7 +15,7 @@ const MAX_TIMESTAMP_AGE_SECONDS: i64 = 30;
 
 type HmacSha256 = Hmac<Sha256>;
 
-/// .
+/// Verifies signed internal cluster requests before routing to protected handlers.
 ///
 /// # Errors
 ///
@@ -34,6 +34,7 @@ pub async fn verify_cluster_signature(
     let timestamp = header_value(&request, "X-Cluster-Timestamp")?;
     let server_id = header_value(&request, "X-Server-Id")?;
 
+    // Reject stale requests to reduce replay window.
     validate_timestamp(&timestamp)?;
 
     let (parts, body) = request.into_parts();
@@ -52,6 +53,7 @@ pub async fn verify_cluster_signature(
     let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    // Signature is computed as HMAC(body || timestamp).
     mac.update(&body_bytes);
     mac.update(timestamp.as_bytes());
     mac.verify_slice(&signature_bytes)
