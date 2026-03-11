@@ -1,9 +1,4 @@
-use std::sync::Arc;
-
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
-
-use crate::deployment::inactivity_monitor::MonitoredProject;
 
 #[derive(Debug, Serialize)]
 pub(super) struct HealthResponse {
@@ -89,6 +84,4 @@ pub(super) struct PortAvailabilityResponse {
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct WorkerState {
-    pub(super) monitored_projects: Arc<RwLock<Vec<MonitoredProject>>>,
-}
+pub(super) struct WorkerState {}

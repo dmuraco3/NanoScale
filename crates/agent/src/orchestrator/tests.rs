@@ -28,7 +28,6 @@ fn new_state(db: DbClient) -> OrchestratorState {
     OrchestratorState {
         db,
         token_store: Arc::new(TokenStore::new()),
-        monitored_projects: Arc::new(RwLock::new(Vec::new())),
         local_server_id: "orchestrator-test".to_string(),
         base_domain: None,
         tls_email: None,

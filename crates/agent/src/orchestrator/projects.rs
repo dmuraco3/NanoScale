@@ -289,12 +289,6 @@ pub(super) async fn delete_project(
             )
         })?;
 
-    {
-        let mut monitored_projects = state.monitored_projects.write().await;
-        monitored_projects
-            .retain(|project| project.service_name != format!("nanoscale-{project_id}.service"));
-    }
-
     Ok(StatusCode::NO_CONTENT)
 }
 

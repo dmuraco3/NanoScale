@@ -158,7 +158,6 @@ curl -sL nanoscale.sh | bash -s -- --join <token> --orchestrator <url>
 
 - Header: Project Name, Live URL, "Deploy" Button, "Visit" Button
 - Deployment Status: Latest commit hash, time, author
-- Scale-to-Zero Config: Toggle switch "Enable Sleep Mode"
 - Manual Trigger: Dropdown "Redeploy" -> "Clear Cache & Redeploy"
 
 **Tab 2: Deployments**

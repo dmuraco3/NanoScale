@@ -155,7 +155,6 @@ CREATE TABLE projects (
     env_vars TEXT NOT NULL,               -- Encrypted at rest (Future)
     port INTEGER NOT NULL,
     domain TEXT,
-    scale_to_zero BOOLEAN DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(server_id) REFERENCES servers(id)
 );

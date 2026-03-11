@@ -15,7 +15,6 @@ use crate::cluster::signature::verify_cluster_signature;
 use crate::cluster::token_store::TokenStore;
 use crate::config::NanoScaleConfig;
 use crate::db::{DbClient, NewServer};
-use crate::deployment::inactivity_monitor::{InactivityMonitor, MonitoredProject};
 use crate::request_logging;
 
 use self::stats_cache::StatsCache;
@@ -40,7 +39,6 @@ mod tests;
 pub struct OrchestratorState {
     pub db: DbClient,
     pub token_store: Arc<TokenStore>,
-    pub monitored_projects: Arc<RwLock<Vec<MonitoredProject>>>,
     pub local_server_id: String,
     pub base_domain: Option<String>,
     pub tls_email: Option<String>,
@@ -85,7 +83,6 @@ pub async fn run() -> Result<()> {
     let state = OrchestratorState {
         db: db_client,
         token_store: Arc::new(TokenStore::new()),
-        monitored_projects: Arc::new(RwLock::new(Vec::new())),
         local_server_id,
         base_domain,
         tls_email,
@@ -93,9 +90,6 @@ pub async fn run() -> Result<()> {
         github: Arc::new(github::GitHubService::from_config(&config)?),
         redeploy_debounce: Arc::new(Mutex::new(HashMap::new())),
     };
-
-    let monitor = InactivityMonitor::new(state.monitored_projects.clone());
-    monitor.spawn();
 
     // keep explicit reference to satisfy clippy for imported Duration and document default debounce
     let _default_webhook_redeploy_debounce = Duration::from_secs(15);

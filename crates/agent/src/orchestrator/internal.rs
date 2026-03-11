@@ -30,7 +30,7 @@ fn repo_paths(project_id: &str) -> (PathBuf, PathBuf) {
 
 #[allow(clippy::too_many_lines)]
 pub(super) async fn internal_projects(
-    State(state): State<OrchestratorState>,
+    State(_state): State<OrchestratorState>,
     Json(payload): Json<WorkerCreateProjectRequest>,
 ) -> (StatusCode, Json<InternalProjectResponse>) {
     let project_id = payload.project_id;
@@ -159,17 +159,6 @@ pub(super) async fn internal_projects(
         }
     };
 
-    {
-        let mut monitored_projects = state.monitored_projects.write().await;
-        monitored_projects
-            .retain(|project| project.service_name != format!("nanoscale-{project_id}.service"));
-        monitored_projects.push(crate::deployment::inactivity_monitor::MonitoredProject {
-            service_name: format!("nanoscale-{project_id}.service"),
-            port,
-            scale_to_zero: true,
-        });
-    }
-
     (
         StatusCode::ACCEPTED,
         Json(InternalProjectResponse {
@@ -191,7 +180,7 @@ pub(super) async fn internal_port_check(
 }
 
 pub(super) async fn internal_delete_project(
-    State(state): State<OrchestratorState>,
+    State(_state): State<OrchestratorState>,
     AxumPath(project_id): AxumPath<String>,
 ) -> (StatusCode, Json<InternalProjectResponse>) {
     let project_id_for_cleanup = project_id.clone();
@@ -202,20 +191,13 @@ pub(super) async fn internal_delete_project(
     .await;
 
     match delete_result {
-        Ok(Ok(())) => {
-            let mut monitored_projects = state.monitored_projects.write().await;
-            monitored_projects.retain(|project| {
-                project.service_name != format!("nanoscale-{project_id}.service")
-            });
-
-            (
-                StatusCode::OK,
-                Json(InternalProjectResponse {
-                    status: "accepted",
-                    message: "Project resources deleted".to_string(),
-                }),
-            )
-        }
+        Ok(Ok(())) => (
+            StatusCode::OK,
+            Json(InternalProjectResponse {
+                status: "accepted",
+                message: "Project resources deleted".to_string(),
+            }),
+        ),
         Ok(Err(error)) => (
             StatusCode::BAD_REQUEST,
             Json(InternalProjectResponse {

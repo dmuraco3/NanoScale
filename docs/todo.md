@@ -1,5 +1,4 @@
 # TODO
-- [ ] make scale to zero opt-in (defaults configurable globally, configurable per project)
 - [ ] add options for configuring domain per project
 - [ ] configurable resource constraints per project
 - [ ] improve project creation page

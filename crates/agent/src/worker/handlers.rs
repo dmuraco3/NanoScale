@@ -9,7 +9,6 @@ use sysinfo::System;
 
 use crate::deployment::build::{BuildSettings, BuildSystem};
 use crate::deployment::git::Git;
-use crate::deployment::inactivity_monitor::MonitoredProject;
 use crate::deployment::nginx::{NginxGenerator, NginxTlsMode};
 use crate::deployment::systemd::SystemdGenerator;
 use crate::deployment::teardown::Teardown;
@@ -93,7 +92,7 @@ pub(super) async fn internal_port_check(
 }
 
 pub(super) async fn internal_delete_project(
-    State(state): State<WorkerState>,
+    State(_state): State<WorkerState>,
     AxumPath(project_id): AxumPath<String>,
 ) -> (StatusCode, Json<CreateProjectPlaceholderResponse>) {
     let project_id_for_cleanup = project_id.clone();
@@ -104,20 +103,13 @@ pub(super) async fn internal_delete_project(
     .await;
 
     match delete_result {
-        Ok(Ok(())) => {
-            let mut monitored_projects = state.monitored_projects.write().await;
-            monitored_projects.retain(|project| {
-                project.service_name != format!("nanoscale-{project_id}.service")
-            });
-
-            (
-                StatusCode::NO_CONTENT,
-                Json(CreateProjectPlaceholderResponse {
-                    status: "accepted",
-                    message: "Project resources deleted".to_string(),
-                }),
-            )
-        }
+        Ok(Ok(())) => (
+            StatusCode::NO_CONTENT,
+            Json(CreateProjectPlaceholderResponse {
+                status: "accepted",
+                message: "Project resources deleted".to_string(),
+            }),
+        ),
         Ok(Err(error)) => (
             StatusCode::BAD_REQUEST,
             Json(CreateProjectPlaceholderResponse {
@@ -137,7 +129,7 @@ pub(super) async fn internal_delete_project(
 
 #[allow(clippy::too_many_lines)]
 pub(super) async fn internal_projects(
-    State(state): State<WorkerState>,
+    State(_state): State<WorkerState>,
     Json(payload): Json<WorkerCreateProjectRequest>,
 ) -> (StatusCode, Json<CreateProjectPlaceholderResponse>) {
     let project_id = payload.project_id;
@@ -267,17 +259,6 @@ pub(super) async fn internal_projects(
             );
         }
     };
-
-    {
-        let mut monitored_projects = state.monitored_projects.write().await;
-        monitored_projects
-            .retain(|project| project.service_name != format!("nanoscale-{project_id}.service"));
-        monitored_projects.push(MonitoredProject {
-            service_name: format!("nanoscale-{project_id}.service"),
-            port,
-            scale_to_zero: true,
-        });
-    }
 
     (
         StatusCode::ACCEPTED,

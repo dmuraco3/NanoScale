@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
 
 use crate::system::PrivilegeWrapper;
 
@@ -77,31 +77,19 @@ impl NginxGenerator {
     }
 
     fn nginx_http_template(server_name: &str, port: u16) -> String {
-        let backend_port = backend_port(port).unwrap_or(port);
         format!(
-            "server {{\n    listen 80;\n    server_name {server_name};\n\n    location ^~ /.well-known/acme-challenge/ {{\n        root {ACME_WEBROOT_PATH};\n    }}\n\n    location / {{\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n\n        proxy_connect_timeout 2s;\n        proxy_pass http://127.0.0.1:{backend_port};\n\n        proxy_intercept_errors on;\n        error_page 502 503 504 = @nanoscale_coldstart;\n    }}\n\n    location @nanoscale_coldstart {{\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n\n        proxy_next_upstream error timeout;\n        proxy_next_upstream_tries 120;\n        proxy_next_upstream_timeout 60s;\n        proxy_connect_timeout 2s;\n\n        proxy_pass http://127.0.0.1:{port};\n    }}\n}}\n"
+            "server {{\n    listen 80;\n    server_name {server_name};\n\n    location ^~ /.well-known/acme-challenge/ {{\n        root {ACME_WEBROOT_PATH};\n    }}\n\n    location / {{\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n\n        proxy_connect_timeout 2s;\n        proxy_pass http://127.0.0.1:{port};\n    }}\n}}\n"
         )
     }
 
     fn nginx_https_template(server_name: &str, domain: &str, port: u16) -> String {
         let cert_path = format!("/etc/letsencrypt/live/{domain}/fullchain.pem");
         let key_path = format!("/etc/letsencrypt/live/{domain}/privkey.pem");
-        let backend_port = backend_port(port).unwrap_or(port);
 
         format!(
-            "server {{\n    listen 80;\n    server_name {server_name};\n\n    location ^~ /.well-known/acme-challenge/ {{\n        root {ACME_WEBROOT_PATH};\n    }}\n\n    location / {{\n        return 301 https://$host$request_uri;\n    }}\n}}\n\nserver {{\n    listen 443 ssl;\n    server_name {server_name};\n\n    ssl_certificate {cert_path};\n    ssl_certificate_key {key_path};\n\n    location / {{\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n\n        proxy_connect_timeout 2s;\n        proxy_pass http://127.0.0.1:{backend_port};\n\n        proxy_intercept_errors on;\n        error_page 502 503 504 = @nanoscale_coldstart;\n    }}\n\n    location @nanoscale_coldstart {{\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n\n        proxy_next_upstream error timeout;\n        proxy_next_upstream_tries 120;\n        proxy_next_upstream_timeout 60s;\n        proxy_connect_timeout 2s;\n\n        proxy_pass http://127.0.0.1:{port};\n    }}\n}}\n"
+            "server {{\n    listen 80;\n    server_name {server_name};\n\n    location ^~ /.well-known/acme-challenge/ {{\n        root {ACME_WEBROOT_PATH};\n    }}\n\n    location / {{\n        return 301 https://$host$request_uri;\n    }}\n}}\n\nserver {{\n    listen 443 ssl;\n    server_name {server_name};\n\n    ssl_certificate {cert_path};\n    ssl_certificate_key {key_path};\n\n    location / {{\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n\n        proxy_connect_timeout 2s;\n        proxy_pass http://127.0.0.1:{port};\n    }}\n}}\n"
         )
     }
-}
-
-fn backend_port(front_port: u16) -> Result<u16> {
-    let candidate = u32::from(front_port) + 10_000;
-    if candidate > u32::from(u16::MAX) {
-        bail!("cannot derive backend port from {front_port}; {candidate} exceeds 65535");
-    }
-
-    u16::try_from(candidate)
-        .map_err(|error| anyhow!("cannot derive backend port from {front_port}: {error}"))
 }
 
 #[cfg(test)]
@@ -133,8 +121,6 @@ mod tests {
     fn http_template_contains_acme_root_and_proxy_pass() {
         let template = NginxGenerator::nginx_http_template("example", 3100);
         assert!(template.contains(ACME_WEBROOT_PATH));
-        assert!(template.contains("proxy_pass http://127.0.0.1:13100"));
-        assert!(template.contains("error_page 502 503 504 = @nanoscale_coldstart"));
         assert!(template.contains("proxy_pass http://127.0.0.1:3100"));
     }
 
@@ -143,8 +129,6 @@ mod tests {
         let template = NginxGenerator::nginx_https_template("example", "app.example.com", 3100);
         assert!(template.contains("/etc/letsencrypt/live/app.example.com/fullchain.pem"));
         assert!(template.contains("return 301 https://$host$request_uri"));
-        assert!(template.contains("proxy_pass http://127.0.0.1:13100"));
-        assert!(template.contains("error_page 502 503 504 = @nanoscale_coldstart"));
         assert!(template.contains("proxy_pass http://127.0.0.1:3100"));
     }
 }

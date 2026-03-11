@@ -3,12 +3,9 @@ use axum::routing::{delete, post};
 use axum::Router;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
-use std::sync::Arc;
-use tokio::sync::RwLock;
 
 use crate::cluster::protocol::{JoinClusterRequest, JoinClusterResponse};
 use crate::config::NanoScaleConfig;
-use crate::deployment::inactivity_monitor::InactivityMonitor;
 use crate::request_logging;
 use crate::system::PrivilegeWrapper;
 
@@ -62,11 +59,7 @@ pub async fn run(join_token: &str) -> Result<()> {
         join_response.server_id
     );
 
-    let worker_state = WorkerState {
-        monitored_projects: Arc::new(RwLock::new(Vec::new())),
-    };
-    let monitor = InactivityMonitor::new(worker_state.monitored_projects.clone());
-    monitor.spawn();
+    let worker_state = WorkerState {};
 
     let app = Router::new()
         .route("/internal/health", post(handlers::internal_health))

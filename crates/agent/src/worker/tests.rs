@@ -2,8 +2,6 @@ use super::*;
 
 use axum::http::StatusCode;
 use axum::{body::to_bytes, http::header, http::Request, routing::delete, routing::post, Router};
-use std::sync::Arc;
-use tokio::sync::RwLock;
 use tower::ServiceExt;
 
 #[test]
@@ -53,9 +51,7 @@ fn worker_create_project_request_deserializes() {
 
 #[tokio::test]
 async fn worker_router_health_endpoint_returns_json() {
-    let state = api_types::WorkerState {
-        monitored_projects: Arc::new(RwLock::new(Vec::new())),
-    };
+    let state = api_types::WorkerState {};
 
     let app = Router::new()
         .route("/internal/health", post(handlers::internal_health))
@@ -89,9 +85,7 @@ async fn worker_router_health_endpoint_returns_json() {
 
 #[tokio::test]
 async fn worker_router_deploy_endpoint_returns_placeholder() {
-    let state = api_types::WorkerState {
-        monitored_projects: Arc::new(RwLock::new(Vec::new())),
-    };
+    let state = api_types::WorkerState {};
 
     let app = Router::new()
         .route("/internal/health", post(handlers::internal_health))
