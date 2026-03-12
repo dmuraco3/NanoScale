@@ -206,9 +206,11 @@ export function SettingsPageClient({
             <p className="text-sm text-[var(--foreground-secondary)]">
               {githubStatus === null
                 ? "Status unknown. Click Refresh GitHub Status."
-                : githubStatus.connected
-                  ? `GitHub App configured: ${githubStatus.github_login ?? "NanoScale GitHub App"}.`
-                  : "GitHub App is not configured yet."}
+                : !githubStatus.enabled
+                  ? "GitHub integration is disabled. Set NANOSCALE_GITHUB_ENABLED=true in your agent config."
+                  : githubStatus.connected
+                    ? `GitHub App configured: ${githubStatus.github_login ?? "NanoScale GitHub App"}.`
+                    : "GitHub App is not configured yet."}
             </p>
 
             <div className="flex flex-wrap gap-2">
@@ -220,7 +222,11 @@ export function SettingsPageClient({
               >
                 Refresh GitHub Status
               </Button>
-              <Button type="button" onClick={handleIntegrateGitHub}>
+              <Button
+                type="button"
+                onClick={handleIntegrateGitHub}
+                disabled={githubStatus !== null && !githubStatus.enabled}
+              >
                 Set Up GitHub App
               </Button>
               {githubStatus?.connected && (

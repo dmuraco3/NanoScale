@@ -45,7 +45,8 @@ export async function startGitHubIntegration(): Promise<string> {
   });
 
   if (!response.ok) {
-    throw new Error("Unable to start GitHub integration");
+    const body = await response.text().catch(() => "");
+    throw new Error(body.trim() || "Unable to start GitHub integration");
   }
 
   const payload = (await response.json()) as { redirect_url: string };

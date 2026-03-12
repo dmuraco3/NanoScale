@@ -22,6 +22,7 @@ const DEFAULT_WORKER_BIND: &str = "0.0.0.0:4000";
 pub struct NanoScaleConfig {
     pub database_path: Option<String>,
     pub tls_email: Option<String>,
+    pub public_base_url: Option<String>,
     pub orchestrator: OrchestratorConfig,
     pub worker: WorkerConfig,
     pub github: GitHubConfig,
@@ -273,6 +274,7 @@ impl NanoScaleConfig {
         self.github
             .public_base_url
             .clone()
+            .or_else(|| self.public_base_url.clone())
             .or_else(|| std::env::var("NANOSCALE_PUBLIC_BASE_URL").ok())
             .map(|value| value.trim().trim_end_matches('/').to_string())
             .filter(|value| !value.is_empty())
@@ -377,5 +379,33 @@ mod tests {
         assert_eq!(config.tls_email().as_deref(), Some("ops@example.com"));
 
         std::env::remove_var("NANOSCALE_TLS_EMAIL");
+    }
+
+    #[test]
+    fn public_base_url_supports_top_level_config_key() {
+        let _guard = env_lock().lock().expect("env lock poisoned");
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let config_path = tempdir.path().join("config.json");
+
+        fs::write(
+            &config_path,
+            r#"{
+  "public_base_url": "  https://example.com/  "
+}"#,
+        )
+        .expect("write config");
+
+        std::env::set_var(
+            "NANOSCALE_CONFIG_PATH",
+            config_path.to_string_lossy().to_string(),
+        );
+
+        let config = NanoScaleConfig::load().expect("load should succeed");
+        assert_eq!(
+            config.public_base_url().as_deref(),
+            Some("https://example.com")
+        );
+
+        std::env::remove_var("NANOSCALE_CONFIG_PATH");
     }
 }
