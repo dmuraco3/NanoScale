@@ -88,24 +88,28 @@ pub struct ProjectDetailsRecord {
 }
 
 #[derive(Debug, Clone)]
-pub struct NewGitHubUserLink {
+pub struct NewGitHubAppCredentials {
     pub id: String,
-    pub local_user_id: String,
-    pub github_user_id: i64,
-    pub github_login: String,
-    pub access_token_encrypted: String,
-    pub refresh_token_encrypted: Option<String>,
-    pub token_expires_at: Option<String>,
+    pub app_id: String,
+    pub app_slug: Option<String>,
+    pub client_id: String,
+    pub client_secret_encrypted: String,
+    pub webhook_secret_encrypted: String,
+    pub private_key_pem_encrypted: String,
+    pub app_name: String,
+    pub app_html_url: Option<String>,
 }
 
 #[derive(Debug, Clone)]
-pub struct GitHubUserLinkRecord {
-    pub local_user_id: String,
-    pub github_user_id: i64,
-    pub github_login: String,
-    pub access_token_encrypted: String,
-    pub refresh_token_encrypted: Option<String>,
-    pub token_expires_at: Option<String>,
+pub struct GitHubAppCredentialsRecord {
+    pub app_id: String,
+    pub app_slug: Option<String>,
+    pub client_id: String,
+    pub client_secret_encrypted: String,
+    pub webhook_secret_encrypted: String,
+    pub private_key_pem_encrypted: String,
+    pub app_name: String,
+    pub app_html_url: Option<String>,
 }
 
 #[derive(Debug, Clone)]

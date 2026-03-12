@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use anyhow::{Context, Result};
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Redirect;
 use axum::Json;
@@ -18,7 +18,7 @@ use tower_sessions::Session;
 use uuid::Uuid;
 
 use crate::db::{
-    NewGitHubInstallation, NewGitHubRepository, NewGitHubUserLink, NewGitHubWebhookDelivery,
+    NewGitHubAppCredentials, NewGitHubInstallation, NewGitHubRepository, NewGitHubWebhookDelivery,
     NewProjectGitHubLink,
 };
 
@@ -30,8 +30,56 @@ use super::auth::current_user_id;
 use super::projects::redeploy_project_by_id;
 use super::OrchestratorState;
 
-const OAUTH_STATE_TTL_SECONDS: u64 = 15 * 60;
 const GITHUB_PAGE_SIZE: usize = 100;
+const GITHUB_APP_CREDENTIALS_ID: &str = "github-app-credentials";
+
+#[derive(Debug, Deserialize)]
+pub(super) struct GitHubManifestCallbackQuery {
+    code: String,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct GitHubManifestResponse {
+    manifest: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubManifestConversionResponse {
+    id: i64,
+    slug: Option<String>,
+    client_id: String,
+    client_secret: String,
+    webhook_secret: String,
+    pem: String,
+    name: String,
+    html_url: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedGitHubAppCredentials {
+    app_id: String,
+    app_slug: Option<String>,
+    webhook_secret: String,
+    private_key_pem: String,
+    app_name: Option<String>,
+    app_html_url: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct GitHubManifestPayload {
+    name: String,
+    url: String,
+    hook_attributes: GitHubManifestHookAttributes,
+    redirect_url: String,
+    public: bool,
+    default_permissions: serde_json::Value,
+    default_events: Vec<&'static str>,
+}
+
+#[derive(Debug, Serialize)]
+struct GitHubManifestHookAttributes {
+    url: String,
+}
 
 #[derive(Clone)]
 pub(crate) struct GitHubService {
@@ -107,21 +155,20 @@ impl GitHubService {
         })
     }
 
-    pub(super) fn is_configured(&self) -> bool {
+    pub(super) fn has_static_credentials(&self) -> bool {
         self.client_id.is_some()
             && self.client_secret.is_some()
             && self.app_id.is_some()
-            && self.app_slug.is_some()
             && self.private_key_path.is_some()
             && self.webhook_secret.is_some()
             && self.public_base_url.is_some()
             && self.cipher.is_some()
     }
 
-    fn callback_url(&self) -> Option<String> {
+    fn manifest_callback_url(&self) -> Option<String> {
         self.public_base_url
             .as_deref()
-            .map(|base| format!("{base}/api/integrations/github/callback"))
+            .map(|base| format!("{base}/api/integrations/github/setup/callback"))
     }
 
     fn webhook_url(&self) -> Option<String> {
@@ -130,10 +177,33 @@ impl GitHubService {
             .map(|base| format!("{base}/api/integrations/github/webhook"))
     }
 
-    fn app_install_url(&self) -> Option<String> {
+    fn static_app_install_url(&self) -> Option<String> {
         self.app_slug
             .as_deref()
             .map(|slug| format!("https://github.com/apps/{slug}/installations/new"))
+    }
+
+    fn app_manifest_json(&self, app_name: &str) -> Option<String> {
+        let domain = self.public_base_url.as_deref()?.to_string();
+        let manifest = GitHubManifestPayload {
+            name: app_name.trim().to_string(),
+            url: domain,
+            hook_attributes: GitHubManifestHookAttributes {
+                url: self.webhook_url()?,
+            },
+            redirect_url: self.manifest_callback_url()?,
+            public: false,
+            default_permissions: serde_json::json!({
+                "contents": "write",
+                "metadata": "read",
+                "pull_requests": "write",
+                "webhooks": "write",
+                "commit_statuses": "write"
+            }),
+            default_events: vec!["push", "pull_request"],
+        };
+
+        serde_json::to_string(&manifest).ok()
     }
 
     fn encrypt(&self, value: &str) -> Result<String> {
@@ -167,117 +237,232 @@ impl GitHubService {
             .map_err(|_| anyhow::anyhow!("decryption failed"))?;
         String::from_utf8(plaintext).context("decrypted value is not utf8")
     }
+}
 
-    fn oauth_state_secret(&self) -> Option<&str> {
-        self.client_secret
-            .as_deref()
-            .or(self.webhook_secret.as_deref())
-    }
-
-    fn build_oauth_state(&self, user_id: &str) -> Result<String, (StatusCode, String)> {
-        let issued_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
+async fn resolve_github_app_credentials(
+    state: &OrchestratorState,
+) -> Result<ResolvedGitHubAppCredentials, (StatusCode, String)> {
+    if let Some(record) = state
+        .db
+        .get_github_app_credentials()
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed loading GitHub app credentials: {error}"),
+            )
+        })?
+    {
+        let webhook_secret = state
+            .github
+            .decrypt(&record.webhook_secret_encrypted)
             .map_err(|error| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("system clock error: {error}"),
-                )
-            })?
-            .as_secs();
-        let nonce = Uuid::new_v4().to_string();
-        let payload = format!("{user_id}:{nonce}:{issued_at}");
-        let secret = self.oauth_state_secret().ok_or((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "GitHub OAuth secret is not configured".to_string(),
-        ))?;
-
-        let mut mac = <hmac::Hmac<sha2::Sha256> as Mac>::new_from_slice(secret.as_bytes())
-            .map_err(|error| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("unable to initialize oauth signer: {error}"),
+                    format!("Failed decrypting GitHub webhook secret: {error}"),
                 )
             })?;
-        mac.update(payload.as_bytes());
-        let signature = hex::encode(mac.finalize().into_bytes());
-
-        Ok(format!("{payload}.{signature}"))
-    }
-
-    fn verify_oauth_state(&self, state: &str) -> Result<String, (StatusCode, String)> {
-        let (payload, provided_signature) = state
-            .rsplit_once('.')
-            .ok_or((StatusCode::UNAUTHORIZED, "Invalid OAuth state".to_string()))?;
-
-        let secret = self.oauth_state_secret().ok_or((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "GitHub OAuth secret is not configured".to_string(),
-        ))?;
-
-        let mut mac = <hmac::Hmac<sha2::Sha256> as Mac>::new_from_slice(secret.as_bytes())
+        let private_key_pem = state
+            .github
+            .decrypt(&record.private_key_pem_encrypted)
             .map_err(|error| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("unable to initialize oauth verifier: {error}"),
+                    format!("Failed decrypting GitHub private key: {error}"),
                 )
             })?;
-        mac.update(payload.as_bytes());
-        let expected_signature = hex::encode(mac.finalize().into_bytes());
-        if !subtle_compare(expected_signature.as_bytes(), provided_signature.as_bytes()) {
-            return Err((StatusCode::UNAUTHORIZED, "Invalid OAuth state".to_string()));
-        }
 
-        let mut parts = payload.split(':');
-        let user_id = parts
-            .next()
-            .ok_or((StatusCode::UNAUTHORIZED, "Invalid OAuth state".to_string()))?;
-        let _nonce = parts
-            .next()
-            .ok_or((StatusCode::UNAUTHORIZED, "Invalid OAuth state".to_string()))?;
-        let issued_at_raw = parts
-            .next()
-            .ok_or((StatusCode::UNAUTHORIZED, "Invalid OAuth state".to_string()))?;
-        if parts.next().is_some() {
-            return Err((StatusCode::UNAUTHORIZED, "Invalid OAuth state".to_string()));
-        }
+        return Ok(ResolvedGitHubAppCredentials {
+            app_id: record.app_id,
+            app_slug: record.app_slug,
+            webhook_secret,
+            private_key_pem,
+            app_name: Some(record.app_name),
+            app_html_url: record.app_html_url,
+        });
+    }
 
-        let issued_at = issued_at_raw
-            .parse::<u64>()
-            .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid OAuth state".to_string()))?;
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
+    if !state.github.has_static_credentials() {
+        return Err((
+            StatusCode::FAILED_DEPENDENCY,
+            "GitHub App credentials are not configured".to_string(),
+        ));
+    }
+
+    let private_key_path = state.github.private_key_path.clone().ok_or((
+        StatusCode::FAILED_DEPENDENCY,
+        "GitHub private key path is not configured".to_string(),
+    ))?;
+    let private_key_pem = std::fs::read_to_string(&private_key_path).map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Unable to read GitHub private key: {error}"),
+        )
+    })?;
+
+    Ok(ResolvedGitHubAppCredentials {
+        app_id: state.github.app_id.clone().unwrap_or_default(),
+        app_slug: state.github.app_slug.clone(),
+        webhook_secret: state.github.webhook_secret.clone().unwrap_or_default(),
+        private_key_pem,
+        app_name: None,
+        app_html_url: None,
+    })
+}
+
+fn app_install_url_from_credentials(credentials: &ResolvedGitHubAppCredentials) -> Option<String> {
+    credentials
+        .app_html_url
+        .as_deref()
+        .map(|url| format!("{url}/installations/new"))
+        .or_else(|| {
+            credentials
+                .app_slug
+                .as_deref()
+                .map(|slug| format!("https://github.com/apps/{slug}/installations/new"))
+        })
+}
+
+pub(super) async fn github_manifest(
+    State(state): State<OrchestratorState>,
+    session: Session,
+    Path(app_name): Path<String>,
+) -> Result<Json<GitHubManifestResponse>, StatusCode> {
+    current_user_id(&session).await?;
+
+    let manifest = state
+        .github
+        .app_manifest_json(&app_name)
+        .ok_or(StatusCode::FAILED_DEPENDENCY)?;
+
+    Ok(Json(GitHubManifestResponse { manifest }))
+}
+
+pub(super) async fn github_manifest_callback(
+    State(state): State<OrchestratorState>,
+    Query(query): Query<GitHubManifestCallbackQuery>,
+) -> Result<Redirect, (StatusCode, String)> {
+    let url = format!(
+        "https://api.github.com/app-manifests/{}/conversions",
+        query.code
+    );
+    let response = reqwest::Client::new()
+        .post(&url)
+        .header("Accept", "application/vnd.github+json")
+        .header("User-Agent", "nanoscale-agent")
+        .send()
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("GitHub manifest exchange failed: {error}"),
+            )
+        })?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            format!("GitHub manifest exchange returned {status}: {body}"),
+        ));
+    }
+
+    let credentials = response
+        .json::<GitHubManifestConversionResponse>()
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("Invalid GitHub manifest response: {error}"),
+            )
+        })?;
+
+    let client_secret_encrypted =
+        state
+            .github
+            .encrypt(&credentials.client_secret)
             .map_err(|error| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("system clock error: {error}"),
+                    format!("Unable to encrypt GitHub client secret: {error}"),
                 )
-            })?
-            .as_secs();
-        if now.saturating_sub(issued_at) > OAUTH_STATE_TTL_SECONDS {
-            return Err((StatusCode::UNAUTHORIZED, "OAuth state expired".to_string()));
-        }
+            })?;
+    let webhook_secret_encrypted =
+        state
+            .github
+            .encrypt(&credentials.webhook_secret)
+            .map_err(|error| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Unable to encrypt GitHub webhook secret: {error}"),
+                )
+            })?;
+    let private_key_pem_encrypted = state.github.encrypt(&credentials.pem).map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Unable to encrypt GitHub private key: {error}"),
+        )
+    })?;
 
-        Ok(user_id.to_string())
-    }
+    state
+        .db
+        .upsert_github_app_credentials(&NewGitHubAppCredentials {
+            id: GITHUB_APP_CREDENTIALS_ID.to_string(),
+            app_id: credentials.id.to_string(),
+            app_slug: credentials.slug.clone(),
+            client_id: credentials.client_id.clone(),
+            client_secret_encrypted,
+            webhook_secret_encrypted,
+            private_key_pem_encrypted,
+            app_name: credentials.name.clone(),
+            app_html_url: credentials.html_url.clone(),
+        })
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed saving GitHub app credentials: {error}"),
+            )
+        })?;
+
+    let redirect_url = credentials
+        .html_url
+        .as_deref()
+        .map(|url| format!("{url}/installations/new"))
+        .or_else(|| {
+            credentials
+                .slug
+                .as_deref()
+                .map(|slug| format!("https://github.com/apps/{slug}/installations/new"))
+        })
+        .unwrap_or_else(|| "/settings".to_string());
+
+    Ok(Redirect::to(&redirect_url))
 }
 
 pub(super) async fn github_status(
     State(state): State<OrchestratorState>,
     session: Session,
 ) -> Result<Json<GitHubStatusResponse>, StatusCode> {
-    let user_id = current_user_id(&session).await?;
-    let link = state
-        .db
-        .get_github_user_link_by_local_user(&user_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    current_user_id(&session).await?;
+    let credentials = match resolve_github_app_credentials(&state).await {
+        Ok(credentials) => Some(credentials),
+        Err((StatusCode::FAILED_DEPENDENCY, _)) => None,
+        Err((_status, _message)) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
 
     Ok(Json(GitHubStatusResponse {
         enabled: state.github.enabled,
-        configured: state.github.is_configured(),
-        connected: link.is_some(),
-        github_login: link.map(|item| item.github_login),
-        app_install_url: state.github.app_install_url(),
+        configured: credentials.is_some(),
+        connected: credentials.is_some(),
+        github_login: credentials
+            .as_ref()
+            .and_then(|item| item.app_slug.clone().or_else(|| item.app_name.clone())),
+        app_install_url: credentials
+            .as_ref()
+            .and_then(app_install_url_from_credentials)
+            .or_else(|| state.github.static_app_install_url()),
     }))
 }
 
@@ -285,52 +470,35 @@ pub(super) async fn github_start(
     State(state): State<OrchestratorState>,
     session: Session,
 ) -> Result<Json<GitHubStartResponse>, (StatusCode, String)> {
-    let user_id = current_user_id(&session).await.map_err(|_| {
+    current_user_id(&session).await.map_err(|_| {
         (
             StatusCode::UNAUTHORIZED,
             "Authentication required".to_string(),
         )
     })?;
 
-    if !state.github.enabled || !state.github.is_configured() {
+    if !state.github.enabled {
         return Err((
             StatusCode::FAILED_DEPENDENCY,
-            "GitHub integration is not configured".to_string(),
+            "GitHub integration is disabled".to_string(),
         ));
     }
 
-    let state_token = state.github.build_oauth_state(&user_id)?;
+    if state
+        .github
+        .app_manifest_json("NanoScale-GitHub-App")
+        .is_none()
+    {
+        return Err((
+            StatusCode::FAILED_DEPENDENCY,
+            "GitHub manifest flow is not available until public base URL and encryption key are configured"
+                .to_string(),
+        ));
+    }
 
-    let callback = state.github.callback_url().ok_or((
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "Missing callback URL".to_string(),
-    ))?;
-
-    let redirect_url = format!(
-        "https://github.com/login/oauth/authorize?client_id={}&redirect_uri={}&state={}",
-        state.github.client_id.clone().unwrap_or_default(),
-        urlencoding::encode(&callback),
-        state_token
-    );
+    let redirect_url = "/github/setup".to_string();
 
     Ok(Json(GitHubStartResponse { redirect_url }))
-}
-
-#[derive(Debug, Deserialize)]
-pub(super) struct GitHubCallbackQuery {
-    code: String,
-    state: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct OAuthTokenResponse {
-    access_token: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct GitHubUserResponse {
-    id: i64,
-    login: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -353,132 +521,14 @@ struct InstallationAccount {
     account_type: String,
 }
 
-#[allow(clippy::too_many_lines)]
-pub(super) async fn github_callback(
-    State(state): State<OrchestratorState>,
-    _session: Session,
-    Query(query): Query<GitHubCallbackQuery>,
-) -> Result<Redirect, (StatusCode, String)> {
-    let user_id = state.github.verify_oauth_state(&query.state)?;
-
-    let callback_url = state.github.callback_url().ok_or((
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "Missing callback URL".to_string(),
-    ))?;
-
-    let token_payload = serde_json::json!({
-        "client_id": state.github.client_id.clone().unwrap_or_default(),
-        "client_secret": state.github.client_secret.clone().unwrap_or_default(),
-        "code": query.code,
-        "redirect_uri": callback_url,
-        "state": query.state,
-    });
-
-    let token_response = reqwest::Client::new()
-        .post("https://github.com/login/oauth/access_token")
-        .header("Accept", "application/json")
-        .json(&token_payload)
-        .send()
-        .await
-        .map_err(|error| {
-            (
-                StatusCode::BAD_GATEWAY,
-                format!("GitHub OAuth exchange failed: {error}"),
-            )
-        })?
-        .json::<OAuthTokenResponse>()
-        .await
-        .map_err(|error| {
-            (
-                StatusCode::BAD_GATEWAY,
-                format!("Invalid token response: {error}"),
-            )
-        })?;
-
-    let github_user = reqwest::Client::new()
-        .get("https://api.github.com/user")
-        .header(
-            "Authorization",
-            format!("Bearer {}", token_response.access_token),
-        )
-        .header("User-Agent", "nanoscale-agent")
-        .send()
-        .await
-        .map_err(|error| {
-            (
-                StatusCode::BAD_GATEWAY,
-                format!("GitHub user lookup failed: {error}"),
-            )
-        })?
-        .json::<GitHubUserResponse>()
-        .await
-        .map_err(|error| {
-            (
-                StatusCode::BAD_GATEWAY,
-                format!("Invalid user response: {error}"),
-            )
-        })?;
-
-    let encrypted_token = state
-        .github
-        .encrypt(&token_response.access_token)
-        .map_err(|error| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Unable to encrypt token: {error}"),
-            )
-        })?;
-
-    state
-        .db
-        .upsert_github_user_link(&NewGitHubUserLink {
-            id: Uuid::new_v4().to_string(),
-            local_user_id: user_id.clone(),
-            github_user_id: github_user.id,
-            github_login: github_user.login,
-            access_token_encrypted: encrypted_token,
-            refresh_token_encrypted: None,
-            token_expires_at: None,
-        })
-        .await
-        .map_err(|error| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to save user link: {error}"),
-            )
-        })?;
-
-    sync_installations_for_user(&state, &user_id).await?;
-
-    let installation_count = state
-        .db
-        .list_github_installations_for_user(&user_id)
-        .await
-        .map_err(|error| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed loading installations after oauth: {error}"),
-            )
-        })?
-        .len();
-
-    if installation_count == 0 {
-        if let Some(install_url) = state.github.app_install_url() {
-            return Ok(Redirect::to(&install_url));
-        }
-    }
-
-    Ok(Redirect::to("/projects/new"))
-}
-
 pub(super) async fn github_disconnect(
     State(state): State<OrchestratorState>,
     session: Session,
 ) -> Result<StatusCode, StatusCode> {
-    let user_id = current_user_id(&session).await?;
+    current_user_id(&session).await?;
     state
         .db
-        .clear_github_user_link(&user_id)
+        .clear_github_app_credentials()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(StatusCode::NO_CONTENT)
@@ -488,32 +538,9 @@ pub(super) async fn sync_installations_for_user(
     state: &OrchestratorState,
     user_id: &str,
 ) -> Result<(), (StatusCode, String)> {
-    let link = state
-        .db
-        .get_github_user_link_by_local_user(user_id)
-        .await
-        .map_err(|error| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed reading github link: {error}"),
-            )
-        })?
-        .ok_or((
-            StatusCode::UNAUTHORIZED,
-            "GitHub account not connected".to_string(),
-        ))?;
-
-    let token = state
-        .github
-        .decrypt(&link.access_token_encrypted)
-        .map_err(|error| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed decrypting token: {error}"),
-            )
-        })?;
-
-    let installations = fetch_user_installations(&token).await?;
+    let credentials = resolve_github_app_credentials(state).await?;
+    let app_token = app_jwt(&credentials)?;
+    let installations = fetch_app_installations(&app_token).await?;
 
     let records = installations
         .into_iter()
@@ -776,8 +803,7 @@ pub(super) async fn ensure_project_webhook(
         )
     })?;
 
-    let installation_token =
-        installation_access_token(&state.github, source.installation_id).await?;
+    let installation_token = installation_access_token(state, source.installation_id).await?;
     let webhook_url = state.github.webhook_url().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
         "Webhook URL is not configured".to_string(),
@@ -860,7 +886,7 @@ pub(super) async fn authenticated_clone_url(
     state: &OrchestratorState,
     source: &ResolvedGitHubSource,
 ) -> Result<String, (StatusCode, String)> {
-    let token = installation_access_token(&state.github, source.installation_id).await?;
+    let token = installation_access_token(state, source.installation_id).await?;
     let encoded_token = urlencoding::encode(&token);
     Ok(source.clone_url.replacen(
         "https://",
@@ -893,12 +919,22 @@ pub(super) async fn github_webhook(
         );
     }
 
+    let webhook_secret = match resolve_github_app_credentials(&state).await {
+        Ok(credentials) => credentials.webhook_secret,
+        Err((_status, _message)) => {
+            return (
+                StatusCode::FAILED_DEPENDENCY,
+                "GitHub App credentials are not configured".to_string(),
+            );
+        }
+    };
+
     if !verify_webhook_signature(
         headers
             .get("X-Hub-Signature-256")
             .and_then(|value| value.to_str().ok())
             .unwrap_or_default(),
-        state.github.webhook_secret.as_deref().unwrap_or_default(),
+        &webhook_secret,
         body.as_bytes(),
     ) {
         return (
@@ -1052,7 +1088,7 @@ async fn sync_repositories_for_installation(
         ));
     }
 
-    let installation_token = installation_access_token(&state.github, installation_id).await?;
+    let installation_token = installation_access_token(state, installation_id).await?;
     let repositories = fetch_installation_repositories(&installation_token).await?;
 
     let records = repositories
@@ -1088,8 +1124,8 @@ async fn sync_repositories_for_installation(
     Ok(())
 }
 
-async fn fetch_user_installations(
-    token: &str,
+async fn fetch_app_installations(
+    app_jwt: &str,
 ) -> Result<Vec<InstallationItem>, (StatusCode, String)> {
     let client = reqwest::Client::new();
     let mut page = 1_usize;
@@ -1097,9 +1133,9 @@ async fn fetch_user_installations(
 
     loop {
         let response = client
-            .get("https://api.github.com/user/installations")
+            .get("https://api.github.com/app/installations")
             .query(&[("per_page", GITHUB_PAGE_SIZE), ("page", page)])
-            .header("Authorization", format!("Bearer {token}"))
+            .header("Authorization", format!("Bearer {app_jwt}"))
             .header("User-Agent", "nanoscale-agent")
             .header("Accept", "application/vnd.github+json")
             .send()
@@ -1107,7 +1143,7 @@ async fn fetch_user_installations(
             .map_err(|error| {
                 (
                     StatusCode::BAD_GATEWAY,
-                    format!("GitHub installation fetch failed: {error}"),
+                    format!("GitHub app installation fetch failed: {error}"),
                 )
             })?
             .json::<InstallationsResponse>()
@@ -1175,10 +1211,11 @@ async fn fetch_installation_repositories(
 }
 
 async fn installation_access_token(
-    service: &GitHubService,
+    state: &OrchestratorState,
     installation_id: i64,
 ) -> Result<String, (StatusCode, String)> {
-    let app_jwt = app_jwt(service)?;
+    let credentials = resolve_github_app_credentials(state).await?;
+    let app_jwt = app_jwt(&credentials)?;
     let response = reqwest::Client::new()
         .post(format!(
             "https://api.github.com/app/installations/{installation_id}/access_tokens"
@@ -1206,7 +1243,7 @@ async fn installation_access_token(
     Ok(response.token)
 }
 
-fn app_jwt(service: &GitHubService) -> Result<String, (StatusCode, String)> {
+fn app_jwt(credentials: &ResolvedGitHubAppCredentials) -> Result<String, (StatusCode, String)> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|error| {
@@ -1220,26 +1257,16 @@ fn app_jwt(service: &GitHubService) -> Result<String, (StatusCode, String)> {
     let claims = AppJwtClaims {
         iat: now.saturating_sub(30),
         exp: now.saturating_add(9 * 60),
-        iss: service.app_id.clone().unwrap_or_default(),
+        iss: credentials.app_id.clone(),
     };
 
-    let private_key_path = service.private_key_path.clone().ok_or((
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "GitHub private key path is not configured".to_string(),
-    ))?;
-    let private_key_bytes = std::fs::read(private_key_path).map_err(|error| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Unable to read GitHub private key: {error}"),
-        )
-    })?;
-
-    let encoding_key = EncodingKey::from_rsa_pem(&private_key_bytes).map_err(|error| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Unable to parse GitHub private key: {error}"),
-        )
-    })?;
+    let encoding_key =
+        EncodingKey::from_rsa_pem(credentials.private_key_pem.as_bytes()).map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Unable to parse GitHub private key: {error}"),
+            )
+        })?;
 
     jsonwebtoken::encode(&Header::new(Algorithm::RS256), &claims, &encoding_key).map_err(|error| {
         (

@@ -199,7 +199,7 @@ export function SettingsPageClient({
           <CardHeader>
             <CardTitle>GitHub Integration</CardTitle>
             <CardDescription>
-              Connect or disconnect your account from GitHub.
+              Configure the GitHub App NanoScale uses to read repositories and receive webhooks.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -207,8 +207,8 @@ export function SettingsPageClient({
               {githubStatus === null
                 ? "Status unknown. Click Refresh GitHub Status."
                 : githubStatus.connected
-                  ? `Connected as ${githubStatus.github_login ?? "GitHub user"}.`
-                  : "GitHub is not connected."}
+                  ? `GitHub App configured: ${githubStatus.github_login ?? "NanoScale GitHub App"}.`
+                  : "GitHub App is not configured yet."}
             </p>
 
             <div className="flex flex-wrap gap-2">
@@ -221,7 +221,7 @@ export function SettingsPageClient({
                 Refresh GitHub Status
               </Button>
               <Button type="button" onClick={handleIntegrateGitHub}>
-                Integrate with GitHub
+                Set Up GitHub App
               </Button>
               {githubStatus?.connected && (
                 <Button
@@ -230,7 +230,7 @@ export function SettingsPageClient({
                   onClick={handleDisconnectGitHub}
                   isLoading={isDisconnectingGitHub}
                 >
-                  Deintegrate with GitHub
+                  Disconnect GitHub App
                 </Button>
               )}
             </div>

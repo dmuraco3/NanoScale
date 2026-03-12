@@ -261,7 +261,7 @@ export default function ProjectForm(props: ProjectFormProps) {
                       Refresh GitHub Status
                     </Button>
                     <Button type="button" variant="secondary" onClick={handleIntegrateGitHub}>
-                      Integrate with GitHub
+                      Set Up GitHub App
                     </Button>
                     {githubStatus?.connected && (
                       <Button type="button" variant="ghost" onClick={handleDisconnectGitHub}>
@@ -273,8 +273,8 @@ export default function ProjectForm(props: ProjectFormProps) {
                   {githubStatus && (
                     <p className="text-sm text-[var(--foreground-secondary)]">
                       {githubStatus.connected
-                        ? `Connected as ${githubStatus.github_login ?? "GitHub user"}`
-                        : "GitHub is not connected for this account."}
+                        ? `GitHub App configured: ${githubStatus.github_login ?? "NanoScale GitHub App"}`
+                        : "GitHub App is not configured yet."}
                     </p>
                   )}
 

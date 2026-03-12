@@ -1,68 +1,75 @@
 use anyhow::Result;
 
 use super::{
-    DbClient, GitHubInstallationRecord, GitHubRepositoryRecord, GitHubUserLinkRecord,
-    NewGitHubInstallation, NewGitHubRepository, NewGitHubUserLink, NewGitHubWebhookDelivery,
+    DbClient, GitHubAppCredentialsRecord, GitHubInstallationRecord, GitHubRepositoryRecord,
+    NewGitHubAppCredentials, NewGitHubInstallation, NewGitHubRepository, NewGitHubWebhookDelivery,
     NewProjectGitHubLink, ProjectGitHubLinkRecord,
 };
 
 #[allow(clippy::missing_errors_doc)]
 impl DbClient {
-    pub async fn upsert_github_user_link(&self, link: &NewGitHubUserLink) -> Result<()> {
+    pub async fn upsert_github_app_credentials(
+        &self,
+        credentials: &NewGitHubAppCredentials,
+    ) -> Result<()> {
         sqlx::query(
-            "INSERT INTO github_user_links (id, local_user_id, github_user_id, github_login, access_token_encrypted, refresh_token_encrypted, token_expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) ON CONFLICT(local_user_id) DO UPDATE SET github_user_id = excluded.github_user_id, github_login = excluded.github_login, access_token_encrypted = excluded.access_token_encrypted, refresh_token_encrypted = excluded.refresh_token_encrypted, token_expires_at = excluded.token_expires_at, updated_at = CURRENT_TIMESTAMP",
+            "INSERT INTO github_app_credentials (id, app_id, app_slug, client_id, client_secret_encrypted, webhook_secret_encrypted, private_key_pem_encrypted, app_name, app_html_url) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) ON CONFLICT(id) DO UPDATE SET app_id = excluded.app_id, app_slug = excluded.app_slug, client_id = excluded.client_id, client_secret_encrypted = excluded.client_secret_encrypted, webhook_secret_encrypted = excluded.webhook_secret_encrypted, private_key_pem_encrypted = excluded.private_key_pem_encrypted, app_name = excluded.app_name, app_html_url = excluded.app_html_url, updated_at = CURRENT_TIMESTAMP",
         )
-        .bind(&link.id)
-        .bind(&link.local_user_id)
-        .bind(link.github_user_id)
-        .bind(&link.github_login)
-        .bind(&link.access_token_encrypted)
-        .bind(link.refresh_token_encrypted.as_deref())
-        .bind(link.token_expires_at.as_deref())
+        .bind(&credentials.id)
+        .bind(&credentials.app_id)
+        .bind(credentials.app_slug.as_deref())
+        .bind(&credentials.client_id)
+        .bind(&credentials.client_secret_encrypted)
+        .bind(&credentials.webhook_secret_encrypted)
+        .bind(&credentials.private_key_pem_encrypted)
+        .bind(&credentials.app_name)
+        .bind(credentials.app_html_url.as_deref())
         .execute(&self.pool)
         .await?;
 
         Ok(())
     }
 
-    pub async fn get_github_user_link_by_local_user(
-        &self,
-        local_user_id: &str,
-    ) -> Result<Option<GitHubUserLinkRecord>> {
-        let row = sqlx::query_as::<_, (String, i64, String, String, Option<String>, Option<String>)>(
-            "SELECT local_user_id, github_user_id, github_login, access_token_encrypted, refresh_token_encrypted, token_expires_at FROM github_user_links WHERE local_user_id = ?1",
+    pub async fn get_github_app_credentials(&self) -> Result<Option<GitHubAppCredentialsRecord>> {
+        let row = sqlx::query_as::<_, (String, Option<String>, String, String, String, String, String, Option<String>)>(
+            "SELECT app_id, app_slug, client_id, client_secret_encrypted, webhook_secret_encrypted, private_key_pem_encrypted, app_name, app_html_url FROM github_app_credentials ORDER BY updated_at DESC LIMIT 1",
         )
-        .bind(local_user_id)
         .fetch_optional(&self.pool)
         .await?;
 
         Ok(row.map(
             |(
-                local_user_id,
-                github_user_id,
-                github_login,
-                access_token_encrypted,
-                refresh_token_encrypted,
-                token_expires_at,
-            )| GitHubUserLinkRecord {
-                local_user_id,
-                github_user_id,
-                github_login,
-                access_token_encrypted,
-                refresh_token_encrypted,
-                token_expires_at,
+                app_id,
+                app_slug,
+                client_id,
+                client_secret_encrypted,
+                webhook_secret_encrypted,
+                private_key_pem_encrypted,
+                app_name,
+                app_html_url,
+            )| GitHubAppCredentialsRecord {
+                app_id,
+                app_slug,
+                client_id,
+                client_secret_encrypted,
+                webhook_secret_encrypted,
+                private_key_pem_encrypted,
+                app_name,
+                app_html_url,
             },
         ))
     }
 
-    pub async fn clear_github_user_link(&self, local_user_id: &str) -> Result<()> {
-        sqlx::query("DELETE FROM github_user_links WHERE local_user_id = ?1")
-            .bind(local_user_id)
+    pub async fn clear_github_app_credentials(&self) -> Result<()> {
+        sqlx::query("DELETE FROM github_app_credentials")
             .execute(&self.pool)
             .await?;
 
-        sqlx::query("DELETE FROM github_installations WHERE local_user_id = ?1")
-            .bind(local_user_id)
+        sqlx::query("DELETE FROM github_repositories")
+            .execute(&self.pool)
+            .await?;
+
+        sqlx::query("DELETE FROM github_installations")
             .execute(&self.pool)
             .await?;
 

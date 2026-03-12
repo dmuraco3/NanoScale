@@ -14,10 +14,10 @@ mod users;
 mod tests;
 
 pub use types::{
-    GitHubInstallationRecord, GitHubRepositoryRecord, GitHubUserLinkRecord, NewGitHubInstallation,
-    NewGitHubRepository, NewGitHubUserLink, NewGitHubWebhookDelivery, NewProject,
-    NewProjectGitHubLink, NewServer, NewUser, ProjectDetailsRecord, ProjectGitHubLinkRecord,
-    ProjectListRecord, ServerConnectionInfo, ServerRecord, UserRecord,
+    GitHubAppCredentialsRecord, GitHubInstallationRecord, GitHubRepositoryRecord,
+    NewGitHubAppCredentials, NewGitHubInstallation, NewGitHubRepository, NewGitHubWebhookDelivery,
+    NewProject, NewProjectGitHubLink, NewServer, NewUser, ProjectDetailsRecord,
+    ProjectGitHubLinkRecord, ProjectListRecord, ServerConnectionInfo, ServerRecord, UserRecord,
 };
 
 /// Lowest port value that can be allocated to managed project runtimes.

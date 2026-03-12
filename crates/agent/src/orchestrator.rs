@@ -138,8 +138,12 @@ pub async fn run() -> Result<()> {
         )
         .route("/api/integrations/github/start", post(github::github_start))
         .route(
-            "/api/integrations/github/callback",
-            get(github::github_callback),
+            "/api/integrations/github/manifest/:app_name",
+            get(github::github_manifest),
+        )
+        .route(
+            "/api/integrations/github/setup/callback",
+            get(github::github_manifest_callback),
         )
         .route(
             "/api/integrations/github/disconnect",
