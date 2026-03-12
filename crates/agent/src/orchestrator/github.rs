@@ -194,11 +194,10 @@ impl GitHubService {
             redirect_url: self.manifest_callback_url()?,
             public: false,
             default_permissions: serde_json::json!({
-                "contents": "write",
+                "contents": "read",
                 "metadata": "read",
-                "pull_requests": "write",
-                "webhooks": "write",
-                "commit_statuses": "write"
+                "pull_requests": "read",
+                "statuses": "read"
             }),
             default_events: vec!["push", "pull_request"],
         };
